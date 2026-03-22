@@ -1,25 +1,32 @@
-import sqlite3
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models import Dish, DishIngredient, Product
 from app.schemas import PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
 from app.services.files import save_upload
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-def as_product(row: sqlite3.Row) -> ProductRead:
-    data = dict(row)
-    return ProductRead.parse_obj(
-        {
-            **data,
-            "requires_cooking": bool(data["requires_cooking"]),
-            "is_vegan": bool(data["is_vegan"]),
-            "is_gluten_free": bool(data["is_gluten_free"]),
-            "is_sugar_free": bool(data["is_sugar_free"]),
-            "photo_url": f"/uploads/{data['photo_path']}" if data.get("photo_path") else None,
-        }
+def serialize_product(product: Product) -> ProductRead:
+    return ProductRead(
+        id=product.id,
+        name=product.name,
+        calories=product.calories,
+        protein=product.protein,
+        fat=product.fat,
+        carbs=product.carbs,
+        composition=product.composition,
+        category=product.category,
+        requires_cooking=product.requires_cooking,
+        is_vegan=product.is_vegan,
+        is_gluten_free=product.is_gluten_free,
+        is_sugar_free=product.is_sugar_free,
+        photo_url=f"/uploads/{product.photo_path}" if product.photo_path else None,
+        created_at=product.created_at,
+        updated_at=product.updated_at,
     )
 
 
@@ -59,111 +66,107 @@ def list_products(
     flags: list[str] = Query(default=[]),
     sortBy: str = Query(default="name"),
     sortOrder: str = Query(default="asc"),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    params = SearchParams(search=search, category=category, requires_cooking=requiresCooking, flags=flags, sort_by=sortBy, sort_order=sortOrder)
+    params = SearchParams(
+        search=search,
+        category=category,
+        requires_cooking=requiresCooking,
+        flags=flags,
+        sort_by=sortBy,
+        sort_order=sortOrder,
+    )
     if params.sort_by not in PRODUCT_SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Unsupported sort field")
 
-    clauses: list[str] = []
-    values: list[object] = []
+    stmt = select(Product)
     if params.search:
-        clauses.append("LOWER(name) LIKE ?")
-        values.append(f"%{params.search.lower()}%")
+        search_pattern = f"%{params.search.casefold()}%"
+        stmt = stmt.where(
+            or_(
+                func.unicode_lower(Product.name).like(search_pattern),
+                func.unicode_lower(Product.category).like(search_pattern),
+            )
+        )
     if params.category:
-        clauses.append("category = ?")
-        values.append(params.category)
+        stmt = stmt.where(func.unicode_lower(Product.category).like(f"%{params.category.casefold()}%"))
     if params.requires_cooking is not None:
-        clauses.append("requires_cooking = ?")
-        values.append(int(params.requires_cooking))
+        stmt = stmt.where(Product.requires_cooking.is_(params.requires_cooking))
     for flag in params.flags:
-        clauses.append(f"is_{flag} = 1")
+        stmt = stmt.where(getattr(Product, f"is_{flag}").is_(True))
 
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    rows = db.execute(
-        f"SELECT * FROM products {where} ORDER BY {params.sort_by} {params.sort_order.upper()}",
-        values,
-    ).fetchall()
-    return [as_product(row) for row in rows]
+    sort_column = getattr(Product, params.sort_by)
+    stmt = stmt.order_by(sort_column.desc() if params.sort_order == "desc" else sort_column.asc())
+    return [serialize_product(product) for product in db.scalars(stmt).all()]
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreate = Depends(product_from_form),
     photo: UploadFile | None = File(default=None),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    cursor = db.execute(
-        """
-        INSERT INTO products (
-            name, photo_path, calories, protein, fat, carbs, composition, category,
-            requires_cooking, is_vegan, is_gluten_free, is_sugar_free
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            payload.name,
-            save_upload(photo),
-            payload.calories,
-            payload.protein,
-            payload.fat,
-            payload.carbs,
-            payload.composition,
-            payload.category,
-            int(payload.requires_cooking),
-            int(payload.is_vegan),
-            int(payload.is_gluten_free),
-            int(payload.is_sugar_free),
-        ),
+    product = Product(
+        name=payload.name,
+        photo_path=save_upload(photo),
+        calories=payload.calories,
+        protein=payload.protein,
+        fat=payload.fat,
+        carbs=payload.carbs,
+        composition=payload.composition,
+        category=payload.category,
+        requires_cooking=payload.requires_cooking,
+        is_vegan=payload.is_vegan,
+        is_gluten_free=payload.is_gluten_free,
+        is_sugar_free=payload.is_sugar_free,
     )
+    db.add(product)
     db.commit()
-    row = db.execute("SELECT * FROM products WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return as_product(row)
+    db.refresh(product)
+    return serialize_product(product)
 
 
 @router.get("/{product_id}", response_model=ProductRead)
-def get_product(product_id: int, db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not row:
+def get_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
-    return as_product(row)
+    return serialize_product(product)
 
 
 @router.patch("/{product_id}", response_model=ProductRead)
-def update_product(product_id: int, payload: ProductUpdate, db: sqlite3.Connection = Depends(get_db)):
-    existing = db.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not existing:
+def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    data = payload.dict(exclude_unset=True)
-    if data:
-        assignments = ", ".join(f"{field} = ?" for field in data.keys())
-        values = list(data.values()) + [product_id]
-        db.execute(f"UPDATE products SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+    update_data = payload.dict(exclude_unset=True)
+    if update_data:
+        for field, value in update_data.items():
+            setattr(product, field, value)
         db.commit()
-    return as_product(db.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone())
+        db.refresh(product)
+    return serialize_product(product)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_product(product_id: int, db: sqlite3.Connection = Depends(get_db)):
-    product = db.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not product:
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    linked = db.execute(
-        """
-        SELECT d.name
-        FROM dishes d
-        JOIN dish_ingredients di ON di.dish_id = d.id
-        WHERE di.product_id = ?
-        """,
-        (product_id,),
-    ).fetchall()
-    if linked:
+    linked_dishes = db.scalars(
+        select(Dish.name)
+        .join(Dish.ingredients)
+        .where(DishIngredient.product_id == product_id)
+        .order_by(Dish.name.asc())
+    ).all()
+    if linked_dishes:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"detail": "Product is used in dishes", "dishes": [row["name"] for row in linked]},
+            detail={"detail": "Product is used in dishes", "dishes": linked_dishes},
         )
 
-    db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    db.delete(product)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

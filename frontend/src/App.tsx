@@ -507,12 +507,12 @@ function DishForm({ edit = false }: { edit?: boolean }) {
       product_id: item.product_id,
       quantity_grams: Number(item.quantity_grams),
     }));
+    const category = form.category.trim();
     try {
       if (edit && id) {
-        const saved = await updateDish(Number(id), {
+        const payload: Record<string, unknown> = {
           name: form.name,
           description: form.description,
-          category: form.category,
           servings: Number(form.servings),
           calories: Number(form.calories),
           protein: Number(form.protein),
@@ -522,7 +522,9 @@ function DishForm({ edit = false }: { edit?: boolean }) {
           is_gluten_free: form.is_gluten_free,
           is_sugar_free: form.is_sugar_free,
           ingredients,
-        });
+        };
+        if (category) payload.category = category;
+        const saved = await updateDish(Number(id), payload);
         navigate(`/dishes/${saved.id}`);
         return;
       }
@@ -530,7 +532,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
       const body = new FormData();
       body.append("name", form.name);
       body.append("description", form.description);
-      body.append("category", form.category);
+      if (category) body.append("category", category);
       body.append("servings", form.servings);
       body.append("calories", form.calories);
       body.append("protein", form.protein);

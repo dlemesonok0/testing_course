@@ -77,7 +77,7 @@ class DishCreate(DishBase):
 class DishUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, min_length=1)
-    category: str | None = Field(default=None, min_length=1, max_length=120)
+    category: str | None = Field(default=None, max_length=120)
     servings: int | None = Field(default=None, gt=0)
     calories: float | None = Field(default=None, ge=0)
     protein: float | None = Field(default=None, ge=0)
@@ -87,6 +87,13 @@ class DishUpdate(BaseModel):
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None
     ingredients: list[DishIngredientInput] | None = Field(default=None, min_items=1)
+
+    @validator("category")
+    def normalize_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class DishIngredientRead(BaseModel):

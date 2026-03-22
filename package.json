@@ -6,10 +6,12 @@
     "install:backend": "python -m venv backend\\.venv && .\\backend\\.venv\\bin\\python.exe -m pip install -r backend\\requirements.txt",
     "install:frontend": "npm --prefix frontend install",
     "install:all": "npm run install:backend && npm run install:frontend",
-    "dev:backend": "cd backend && .\\.venv\\bin\\uvicorn.exe app.main:app --reload",
+    "dev:backend": "cd backend && .\\.venv\\bin\\uvicorn.exe app.main:app --reload --log-level info --access-log",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build": "npm --prefix frontend run build",
+    "seed:backend": "backend\\.venv\\bin\\python.exe backend\\scripts\\seed_test_data.py",
+    "seed": "npm run seed:backend",
     "test:backend": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_api.py",
     "test": "npm run test:backend"
   },

@@ -48,7 +48,9 @@ class Dish(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     ingredients: Mapped[list["DishIngredient"]] = relationship(
-        back_populates="dish", cascade="all, delete-orphan"
+        back_populates="dish",
+        cascade="all, delete-orphan",
+        order_by="DishIngredient.id",
     )
 
 
