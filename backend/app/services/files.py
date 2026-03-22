@@ -17,3 +17,9 @@ def save_upload(file: UploadFile | None) -> str | None:
     with destination.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     return filename
+
+
+def save_uploads(files: list[UploadFile] | None) -> list[str]:
+    if not files:
+        return []
+    return [saved for saved in (save_upload(file) for file in files) if saved is not None]

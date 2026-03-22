@@ -12,6 +12,7 @@ export type Product = {
   is_gluten_free: boolean;
   is_sugar_free: boolean;
   photo_url: string | null;
+  photo_urls: string[];
   created_at: string;
   updated_at: string;
 };
@@ -36,6 +37,7 @@ export type Dish = {
   is_gluten_free: boolean;
   is_sugar_free: boolean;
   photo_url: string | null;
+  photo_urls: string[];
   created_at: string;
   updated_at: string;
   ingredients: DishIngredient[];

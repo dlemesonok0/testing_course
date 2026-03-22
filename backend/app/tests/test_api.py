@@ -10,7 +10,7 @@ os.environ["RECIPE_BOOK_DB_PATH"] = str(Path("test_recipe_book.db").resolve())
 
 from app.database import SessionLocal, init_db
 from app.main import app
-from app.models import Dish, DishIngredient, Product
+from app.models import Dish, DishIngredient, DishPhoto, Product, ProductPhoto
 
 client = TestClient(app)
 
@@ -19,6 +19,8 @@ client = TestClient(app)
 def setup_db():
     init_db()
     with SessionLocal() as session:
+        session.execute(delete(ProductPhoto))
+        session.execute(delete(DishPhoto))
         session.execute(delete(DishIngredient))
         session.execute(delete(Dish))
         session.execute(delete(Product))
@@ -80,6 +82,84 @@ def test_product_search_supports_cyrillic_casefold():
     assert [item["name"] for item in response.json()] == ["\u0411\u0430\u043d\u0430\u043d"]
 
 
+def test_product_create_supports_multiple_photos():
+    response = client.post(
+        "/products",
+        data={
+            "name": "Banana",
+            "calories": 100,
+            "protein": 10,
+            "fat": 5,
+            "carbs": 20,
+            "composition": "Fruit",
+            "category": "fruit",
+            "requires_cooking": "false",
+            "is_vegan": "true",
+            "is_gluten_free": "true",
+            "is_sugar_free": "true",
+        },
+        files=[
+            ("photos", ("first.jpg", b"first-photo", "image/jpeg")),
+            ("photos", ("second.jpg", b"second-photo", "image/jpeg")),
+        ],
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["photo_urls"]) == 2
+    assert response.json()["photo_url"] == response.json()["photo_urls"][0]
+
+
+def test_product_update_replaces_photo_set():
+    created = client.post(
+        "/products",
+        data={
+            "name": "Banana",
+            "calories": 100,
+            "protein": 10,
+            "fat": 5,
+            "carbs": 20,
+            "composition": "Fruit",
+            "category": "fruit",
+            "requires_cooking": "false",
+            "is_vegan": "true",
+            "is_gluten_free": "true",
+            "is_sugar_free": "true",
+        },
+        files=[("photos", ("first.jpg", b"first-photo", "image/jpeg"))],
+    )
+    assert created.status_code == 201, created.text
+
+    updated = client.patch(
+        f"/products/{created.json()['id']}",
+        data={
+            "name": "Banana premium",
+            "calories": 101,
+            "protein": 10,
+            "fat": 5,
+            "carbs": 21,
+            "composition": "Fruit",
+            "category": "fruit",
+            "requires_cooking": "false",
+            "is_vegan": "true",
+            "is_gluten_free": "true",
+            "is_sugar_free": "true",
+        },
+        files=[
+            ("photos", ("second.jpg", b"second-photo", "image/jpeg")),
+            ("photos", ("third.jpg", b"third-photo", "image/jpeg")),
+        ],
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "Banana premium"
+    assert len(updated.json()["photo_urls"]) == 2
+    assert updated.json()["photo_url"] == updated.json()["photo_urls"][0]
+    assert updated.json()["photo_urls"][0] != created.json()["photo_urls"][0]
+
+    with SessionLocal() as session:
+        product = session.get(Product, created.json()["id"])
+        assert product is not None
+        assert len(product.photos) == 2
+
+
 def test_dish_draft_and_create():
     tofu = create_product("Tofu", vegan=True)
     sauce = create_product("Sauce", vegan=True)
@@ -111,6 +191,89 @@ def test_dish_draft_and_create():
     )
     assert response.status_code == 201, response.text
     assert len(response.json()["ingredients"]) == 2
+
+
+def test_dish_create_supports_multiple_photos():
+    tofu = create_product("Tofu", vegan=True)
+    response = client.post(
+        "/dishes",
+        data={
+            "name": "Photo Bowl",
+            "description": "Protein bowl",
+            "category": "dinner",
+            "servings": 2,
+            "calories": 190,
+            "protein": 19,
+            "fat": 9.5,
+            "carbs": 38,
+            "is_vegan": "true",
+            "is_gluten_free": "true",
+            "is_sugar_free": "true",
+            "ingredients": json.dumps([{"product_id": tofu["id"], "quantity_grams": 200}]),
+        },
+        files=[
+            ("photos", ("first.jpg", b"first-photo", "image/jpeg")),
+            ("photos", ("second.jpg", b"second-photo", "image/jpeg")),
+        ],
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["photo_urls"]) == 2
+    assert response.json()["photo_url"] == response.json()["photo_urls"][0]
+
+
+def test_dish_update_replaces_photo_set():
+    tofu = create_product("Tofu", vegan=True)
+    created = client.post(
+        "/dishes",
+        data={
+            "name": "Photo Bowl",
+            "description": "Protein bowl",
+            "category": "dinner",
+            "servings": 2,
+            "calories": 190,
+            "protein": 19,
+            "fat": 9.5,
+            "carbs": 38,
+            "is_vegan": "true",
+            "is_gluten_free": "true",
+            "is_sugar_free": "true",
+            "ingredients": json.dumps([{"product_id": tofu["id"], "quantity_grams": 200}]),
+        },
+        files=[("photos", ("first.jpg", b"first-photo", "image/jpeg"))],
+    )
+    assert created.status_code == 201, created.text
+
+    updated = client.patch(
+        f"/dishes/{created.json()['id']}",
+        data={
+            "name": "Updated Bowl",
+            "description": "Protein bowl",
+            "category": "dinner",
+            "servings": 2,
+            "calories": 190,
+            "protein": 19,
+            "fat": 9.5,
+            "carbs": 38,
+            "is_vegan": "true",
+            "is_gluten_free": "true",
+            "is_sugar_free": "true",
+            "ingredients": json.dumps([{"product_id": tofu["id"], "quantity_grams": 200}]),
+        },
+        files=[
+            ("photos", ("second.jpg", b"second-photo", "image/jpeg")),
+            ("photos", ("third.jpg", b"third-photo", "image/jpeg")),
+        ],
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "Updated Bowl"
+    assert len(updated.json()["photo_urls"]) == 2
+    assert updated.json()["photo_url"] == updated.json()["photo_urls"][0]
+    assert updated.json()["photo_urls"][0] != created.json()["photo_urls"][0]
+
+    with SessionLocal() as session:
+        dish = session.get(Dish, created.json()["id"])
+        assert dish is not None
+        assert len(dish.photos) == 2
 
 
 def test_dish_name_macro_sets_category_and_cleans_name():

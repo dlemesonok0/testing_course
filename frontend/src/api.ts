@@ -33,14 +33,16 @@ export async function createProduct(formData: FormData) {
   return parseJson<Product>(await fetch(`${API_BASE}/products`, { method: "POST", body: formData }));
 }
 
-export async function updateProduct(id: number, payload: Partial<Product>) {
-  return parseJson<Product>(
-    await fetch(`${API_BASE}/products/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-  );
+export async function updateProduct(id: number, payload: Partial<Product> | FormData) {
+  const init =
+    payload instanceof FormData
+      ? { method: "PATCH", body: payload }
+      : {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        };
+  return parseJson<Product>(await fetch(`${API_BASE}/products/${id}`, init));
 }
 
 export async function deleteProduct(id: number) {
@@ -61,14 +63,16 @@ export async function createDish(formData: FormData) {
   return parseJson<Dish>(await fetch(`${API_BASE}/dishes`, { method: "POST", body: formData }));
 }
 
-export async function updateDish(id: number, payload: Record<string, unknown>) {
-  return parseJson<Dish>(
-    await fetch(`${API_BASE}/dishes/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-  );
+export async function updateDish(id: number, payload: Record<string, unknown> | FormData) {
+  const init =
+    payload instanceof FormData
+      ? { method: "PATCH", body: payload }
+      : {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        };
+  return parseJson<Dish>(await fetch(`${API_BASE}/dishes/${id}`, init));
 }
 
 export async function deleteDish(id: number) {

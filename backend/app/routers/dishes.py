@@ -1,15 +1,15 @@
 import json
 import re
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Dish, DishIngredient, Product
+from app.models import Dish, DishIngredient, DishPhoto, Product
 from app.schemas import DISH_SORT_FIELDS, DishCreate, DishIngredientInput, DishRead, DishUpdate, NutritionDraft, SearchParams
-from app.services.files import save_upload
+from app.services.files import save_upload, save_uploads
 from app.services.nutrition import calculate_draft
 
 router = APIRouter(prefix="/dishes", tags=["dishes"])
@@ -127,16 +127,60 @@ def dish_from_form(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
 
 
+def parse_dish_update_payload(payload: dict[str, object]) -> DishUpdate | None:
+    if not payload:
+        return None
+
+    try:
+        return DishUpdate(**payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+
+
+def dish_update_from_form_data(form_data) -> DishUpdate | None:
+    payload: dict[str, object] = {}
+    for field in (
+        "name",
+        "description",
+        "category",
+        "servings",
+        "calories",
+        "protein",
+        "fat",
+        "carbs",
+        "is_vegan",
+        "is_gluten_free",
+        "is_sugar_free",
+    ):
+        if field in form_data:
+            payload[field] = form_data[field]
+
+    if "ingredients" in form_data:
+        payload["ingredients"] = parse_ingredients(str(form_data["ingredients"]))
+
+    return parse_dish_update_payload(payload)
+
+
+def uploaded_files_from_form(form_data, field_name: str) -> list[UploadFile]:
+    return [item for item in form_data.getlist(field_name) if getattr(item, "filename", None)]
+
+
 def get_dish(db: Session, dish_id: int) -> Dish | None:
     stmt = (
         select(Dish)
-        .options(selectinload(Dish.ingredients).selectinload(DishIngredient.product))
+        .options(
+            selectinload(Dish.ingredients).selectinload(DishIngredient.product),
+            selectinload(Dish.photos),
+        )
         .where(Dish.id == dish_id)
     )
     return db.scalar(stmt)
 
 
 def dish_payload(dish: Dish) -> DishRead:
+    photo_urls = [f"/uploads/{photo.file_path}" for photo in dish.photos]
+    if not photo_urls and dish.photo_path:
+        photo_urls = [f"/uploads/{dish.photo_path}"]
     draft = calculate_draft(
         [(product_nutrition_snapshot(item.product), item.quantity_grams) for item in dish.ingredients]
     )
@@ -153,7 +197,8 @@ def dish_payload(dish: Dish) -> DishRead:
         is_vegan=dish.is_vegan,
         is_gluten_free=dish.is_gluten_free,
         is_sugar_free=dish.is_sugar_free,
-        photo_url=f"/uploads/{dish.photo_path}" if dish.photo_path else None,
+        photo_url=photo_urls[0] if photo_urls else None,
+        photo_urls=photo_urls,
         created_at=dish.created_at,
         updated_at=dish.updated_at,
         ingredients=[
@@ -190,7 +235,10 @@ def list_dishes(
     if params.sort_by not in DISH_SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Unsupported sort field")
 
-    stmt = select(Dish).options(selectinload(Dish.ingredients).selectinload(DishIngredient.product))
+    stmt = select(Dish).options(
+        selectinload(Dish.ingredients).selectinload(DishIngredient.product),
+        selectinload(Dish.photos),
+    )
     if params.search:
         search_pattern = f"%{params.search.casefold()}%"
         stmt = stmt.where(
@@ -213,6 +261,7 @@ def list_dishes(
 def create_dish(
     payload: DishCreate = Depends(dish_from_form),
     photo: UploadFile | None = File(default=None),
+    photos: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
 ):
     product_map = load_products_map(db, payload.ingredients)
@@ -220,10 +269,15 @@ def create_dish(
         [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients]
     )
     validate_requested_flags(payload, draft["allowed_flags"])
+    saved_photo_paths = save_uploads(photos)
+    if not saved_photo_paths:
+        legacy_photo = save_upload(photo)
+        if legacy_photo:
+            saved_photo_paths = [legacy_photo]
 
     dish = Dish(
         name=payload.name,
-        photo_path=save_upload(photo),
+        photo_path=saved_photo_paths[0] if saved_photo_paths else None,
         description=payload.description,
         category=payload.category,
         servings=payload.servings,
@@ -239,6 +293,8 @@ def create_dish(
         dish.ingredients.append(
             DishIngredient(product_id=item.product_id, quantity_grams=item.quantity_grams)
         )
+    for index, file_path in enumerate(saved_photo_paths):
+        dish.photos.append(DishPhoto(file_path=file_path, position=index))
 
     db.add(dish)
     db.commit()
@@ -258,12 +314,28 @@ def get_dish_by_id(dish_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{dish_id}", response_model=DishRead)
-def update_dish(dish_id: int, payload: DishUpdate, db: Session = Depends(get_db)):
+async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_db)):
     dish = get_dish(db, dish_id)
     if dish is None:
         raise HTTPException(status_code=404, detail="Dish not found")
 
-    update_data = payload.dict(exclude_unset=True, exclude_none=True)
+    content_type = request.headers.get("content-type", "")
+    new_photo_paths: list[str] = []
+    if content_type.startswith("application/json"):
+        try:
+            raw_payload = await request.json()
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+        request_payload = parse_dish_update_payload(raw_payload) or DishUpdate()
+    else:
+        form_data = await request.form()
+        request_payload = dish_update_from_form_data(form_data) or DishUpdate()
+        uploaded_photos = uploaded_files_from_form(form_data, "photos")
+        if not uploaded_photos:
+            uploaded_photos = uploaded_files_from_form(form_data, "photo")
+        new_photo_paths = save_uploads(uploaded_photos)
+
+    update_data = request_payload.dict(exclude_unset=True, exclude_none=True, exclude={"ingredients"})
     if "name" in update_data:
         resolved_name, resolved_category = resolve_dish_name_and_category(
             update_data["name"],
@@ -276,7 +348,7 @@ def update_dish(dish_id: int, payload: DishUpdate, db: Session = Depends(get_db)
     elif "category" in update_data:
         update_data["category"] = normalize_whitespace(update_data["category"])
 
-    ingredients_payload = update_data.pop("ingredients", None)
+    ingredients_payload = request_payload.ingredients if "ingredients" in request_payload.__fields_set__ else None
     effective_ingredients = ingredients_payload or [
         DishIngredientInput(product_id=item.product_id, quantity_grams=item.quantity_grams) for item in dish.ingredients
     ]
@@ -310,8 +382,13 @@ def update_dish(dish_id: int, payload: DishUpdate, db: Session = Depends(get_db)
             dish.ingredients.append(
                 DishIngredient(product_id=item.product_id, quantity_grams=item.quantity_grams)
             )
+    if new_photo_paths:
+        dish.photo_path = new_photo_paths[0]
+        dish.photos.clear()
+        for index, file_path in enumerate(new_photo_paths):
+            dish.photos.append(DishPhoto(file_path=file_path, position=index))
 
-    if update_data or ingredients_payload is not None:
+    if update_data or ingredients_payload is not None or new_photo_paths:
         db.commit()
 
     updated = get_dish(db, dish_id)

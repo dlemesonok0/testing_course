@@ -1,16 +1,21 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Dish, DishIngredient, Product
+from app.models import Dish, DishIngredient, Product, ProductPhoto
 from app.schemas import PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
-from app.services.files import save_upload
+from app.services.files import save_upload, save_uploads
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 
 def serialize_product(product: Product) -> ProductRead:
+    photo_urls = [f"/uploads/{photo.file_path}" for photo in product.photos]
+    if not photo_urls and product.photo_path:
+        photo_urls = [f"/uploads/{product.photo_path}"]
+
     return ProductRead(
         id=product.id,
         name=product.name,
@@ -24,7 +29,8 @@ def serialize_product(product: Product) -> ProductRead:
         is_vegan=product.is_vegan,
         is_gluten_free=product.is_gluten_free,
         is_sugar_free=product.is_sugar_free,
-        photo_url=f"/uploads/{product.photo_path}" if product.photo_path else None,
+        photo_url=photo_urls[0] if photo_urls else None,
+        photo_urls=photo_urls,
         created_at=product.created_at,
         updated_at=product.updated_at,
     )
@@ -58,6 +64,39 @@ def product_from_form(
     )
 
 
+def parse_product_update_payload(payload: dict[str, object]) -> ProductUpdate | None:
+    if not payload:
+        return None
+    try:
+        return ProductUpdate(**payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+
+
+def product_update_from_form_data(form_data) -> ProductUpdate | None:
+    payload: dict[str, object] = {}
+    for field in (
+        "name",
+        "calories",
+        "protein",
+        "fat",
+        "carbs",
+        "composition",
+        "category",
+        "requires_cooking",
+        "is_vegan",
+        "is_gluten_free",
+        "is_sugar_free",
+    ):
+        if field in form_data:
+            payload[field] = form_data[field]
+    return parse_product_update_payload(payload)
+
+
+def uploaded_files_from_form(form_data, field_name: str) -> list[UploadFile]:
+    return [item for item in form_data.getlist(field_name) if getattr(item, "filename", None)]
+
+
 @router.get("", response_model=list[ProductRead])
 def list_products(
     search: str | None = None,
@@ -79,7 +118,7 @@ def list_products(
     if params.sort_by not in PRODUCT_SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Unsupported sort field")
 
-    stmt = select(Product)
+    stmt = select(Product).options(selectinload(Product.photos))
     if params.search:
         search_pattern = f"%{params.search.casefold()}%"
         stmt = stmt.where(
@@ -104,11 +143,18 @@ def list_products(
 def create_product(
     payload: ProductCreate = Depends(product_from_form),
     photo: UploadFile | None = File(default=None),
+    photos: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
 ):
+    saved_photo_paths = save_uploads(photos)
+    if not saved_photo_paths:
+        legacy_photo = save_upload(photo)
+        if legacy_photo:
+            saved_photo_paths = [legacy_photo]
+
     product = Product(
         name=payload.name,
-        photo_path=save_upload(photo),
+        photo_path=saved_photo_paths[0] if saved_photo_paths else None,
         calories=payload.calories,
         protein=payload.protein,
         fat=payload.fat,
@@ -120,6 +166,8 @@ def create_product(
         is_gluten_free=payload.is_gluten_free,
         is_sugar_free=payload.is_sugar_free,
     )
+    for index, file_path in enumerate(saved_photo_paths):
+        product.photos.append(ProductPhoto(file_path=file_path, position=index))
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -128,22 +176,44 @@ def create_product(
 
 @router.get("/{product_id}", response_model=ProductRead)
 def get_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.get(Product, product_id)
+    product = db.scalar(select(Product).options(selectinload(Product.photos)).where(Product.id == product_id))
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return serialize_product(product)
 
 
 @router.patch("/{product_id}", response_model=ProductRead)
-def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db)):
-    product = db.get(Product, product_id)
+async def update_product(product_id: int, request: Request, db: Session = Depends(get_db)):
+    product = db.scalar(select(Product).options(selectinload(Product.photos)).where(Product.id == product_id))
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    update_data = payload.dict(exclude_unset=True)
+    content_type = request.headers.get("content-type", "")
+    new_photo_paths: list[str] = []
+    if content_type.startswith("application/json"):
+        try:
+            raw_payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+        request_payload = parse_product_update_payload(raw_payload) or ProductUpdate()
+    else:
+        form_data = await request.form()
+        request_payload = product_update_from_form_data(form_data) or ProductUpdate()
+        uploaded_photos = uploaded_files_from_form(form_data, "photos")
+        if not uploaded_photos:
+            uploaded_photos = uploaded_files_from_form(form_data, "photo")
+        new_photo_paths = save_uploads(uploaded_photos)
+
+    update_data = request_payload.dict(exclude_unset=True, exclude_none=True)
     if update_data:
         for field, value in update_data.items():
             setattr(product, field, value)
+    if new_photo_paths:
+        product.photo_path = new_photo_paths[0]
+        product.photos.clear()
+        for index, file_path in enumerate(new_photo_paths):
+            product.photos.append(ProductPhoto(file_path=file_path, position=index))
+    if update_data or new_photo_paths:
         db.commit()
         db.refresh(product)
     return serialize_product(product)

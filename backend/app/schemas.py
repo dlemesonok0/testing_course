@@ -43,6 +43,7 @@ class ProductUpdate(BaseModel):
 class ProductRead(ProductBase):
     id: int
     photo_url: str | None
+    photo_urls: list[str]
     created_at: datetime
     updated_at: datetime
 
@@ -124,6 +125,7 @@ class DishRead(BaseModel):
     is_gluten_free: bool
     is_sugar_free: bool
     photo_url: str | None
+    photo_urls: list[str]
     created_at: datetime
     updated_at: datetime
     ingredients: list[DishIngredientRead]
