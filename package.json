@@ -1,0 +1,19 @@
+{
+  "name": "recipe-book",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "install:backend": "python -m venv backend\\.venv && .\\backend\\.venv\\bin\\python.exe -m pip install -r backend\\requirements.txt",
+    "install:frontend": "npm --prefix frontend install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "dev:backend": "cd backend && .\\.venv\\bin\\uvicorn.exe app.main:app --reload",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "npm --prefix frontend run build",
+    "test:backend": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_api.py",
+    "test": "npm run test:backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
