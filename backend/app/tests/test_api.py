@@ -384,6 +384,20 @@ def test_product_constraints_accept_nullable_composition_and_limit_photo_count()
     assert too_many_photos.status_code == 422
 
 
+def test_product_constraints_reject_macro_values_over_limits():
+    protein_too_high = client.post(
+        "/products",
+        data=product_payload("Протеин", protein=101),
+    )
+    assert protein_too_high.status_code == 422
+
+    bju_sum_too_high = client.post(
+        "/products",
+        data=product_payload("Смесь", protein=40, fat=40, carbs=30),
+    )
+    assert bju_sum_too_high.status_code == 422
+
+
 def test_dish_constraints_require_valid_name_and_portion_size():
     tofu = create_product("Tofu", vegan=True)
 
@@ -402,3 +416,54 @@ def test_dish_constraints_require_valid_name_and_portion_size():
         ),
     )
     assert invalid_portion.status_code == 422
+
+
+def test_dish_constraints_reject_macro_values_over_limits():
+    tofu = create_product("Tofu", vegan=True)
+
+    protein_too_high = client.post(
+        "/dishes",
+        data=dish_payload(
+            "High protein dish",
+            [{"product_id": tofu["id"], "quantity_grams": 100}],
+            protein=101,
+        ),
+    )
+    assert protein_too_high.status_code == 422
+
+    bju_sum_too_high = client.post(
+        "/dishes",
+        data=dish_payload(
+            "Invalid macros dish",
+            [{"product_id": tofu["id"], "quantity_grams": 100}],
+            protein=40,
+            fat=40,
+            carbs=30,
+        ),
+    )
+    assert bju_sum_too_high.status_code == 422
+
+
+def test_product_update_rejects_bju_sum_over_limit():
+    product = create_product("Тофу")
+
+    response = client.patch(
+        f"/products/{product['id']}",
+        json={"protein": 90},
+    )
+    assert response.status_code == 422
+
+
+def test_dish_update_rejects_bju_sum_over_limit():
+    tofu = create_product("Tofu", vegan=True)
+    dish = client.post(
+        "/dishes",
+        data=dish_payload("Tofu Bowl", [{"product_id": tofu["id"], "quantity_grams": 100}], protein=30, fat=20, carbs=20),
+    )
+    assert dish.status_code == 201, dish.text
+
+    response = client.patch(
+        f"/dishes/{dish.json()['id']}",
+        json={"protein": 70},
+    )
+    assert response.status_code == 422
