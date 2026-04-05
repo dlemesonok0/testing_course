@@ -62,7 +62,6 @@ const emptyProduct = {
   is_vegan: false,
   is_gluten_free: false,
   is_sugar_free: false,
-  photo_links_text: "",
   photos: [] as File[],
 };
 
@@ -434,7 +433,6 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
           is_vegan: item.is_vegan,
           is_gluten_free: item.is_gluten_free,
           is_sugar_free: item.is_sugar_free,
-          photo_links_text: "",
           photos: [],
         });
       }
@@ -443,11 +441,6 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
 
   const submit = async () => {
     try {
-      const photoLinks = form.photo_links_text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-      if (form.photos.length + photoLinks.length > MAX_PHOTOS) {
-        setError(`Можно указать не более ${MAX_PHOTOS} фотографий или ссылок.`);
-        return;
-      }
       const body = new FormData();
       body.append("name", form.name);
       body.append("calories", form.calories);
@@ -460,7 +453,6 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
       body.append("is_vegan", String(form.is_vegan));
       body.append("is_gluten_free", String(form.is_gluten_free));
       body.append("is_sugar_free", String(form.is_sugar_free));
-      photoLinks.forEach((link) => body.append("photo_links", link));
       form.photos.forEach((photo) => body.append("photos", photo));
 
       if (edit && id) {
@@ -489,7 +481,6 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
           </select>
         </label>
         <Field label="Состав" value={form.composition} onChange={(value) => setForm((prev) => ({ ...prev, composition: value }))} multiline />
-        <Field label="Ссылки на фото, по одной в строке" value={form.photo_links_text} onChange={(value) => setForm((prev) => ({ ...prev, photo_links_text: value }))} multiline />
         <label className="field">
           <span>Степень готовности</span>
           <select value={form.cooking_state} onChange={(e) => setForm((prev) => ({ ...prev, cooking_state: e.target.value }))}>

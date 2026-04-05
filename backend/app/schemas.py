@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import AnyHttpUrl, BaseModel, Field, validator
+from pydantic import AnyHttpUrl, BaseModel, Field, root_validator, validator
 
 
 FLAG_NAMES = {"vegan", "gluten_free", "sugar_free"}
@@ -51,9 +51,9 @@ def validate_choice(value: str, field_name: str, allowed: tuple[str, ...]) -> st
 class ProductBase(BaseModel):
     name: str = Field(max_length=255)
     calories: float = Field(ge=0)
-    protein: float = Field(ge=0)
-    fat: float = Field(ge=0)
-    carbs: float = Field(ge=0)
+    protein: float = Field(ge=0, le=100)
+    fat: float = Field(ge=0, le=100)
+    carbs: float = Field(ge=0, le=100)
     composition: str | None = None
     category: str = Field(max_length=120)
     cooking_state: str = Field(max_length=64)
@@ -80,6 +80,15 @@ class ProductBase(BaseModel):
     def validate_cooking_state(cls, value: str) -> str:
         return validate_choice(value, "cooking_state", COOKING_STATES)
 
+    @root_validator
+    def validate_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
+        protein = float(values.get("protein", 0))
+        fat = float(values.get("fat", 0))
+        carbs = float(values.get("carbs", 0))
+        if protein + fat + carbs > 100:
+            raise ValueError("protein + fat + carbs must be less than or equal to 100")
+        return values
+
 
 class ProductCreate(ProductBase):
     photo_links: list[AnyHttpUrl] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
@@ -88,9 +97,9 @@ class ProductCreate(ProductBase):
 class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     calories: float | None = Field(default=None, ge=0)
-    protein: float | None = Field(default=None, ge=0)
-    fat: float | None = Field(default=None, ge=0)
-    carbs: float | None = Field(default=None, ge=0)
+    protein: float | None = Field(default=None, ge=0, le=100)
+    fat: float | None = Field(default=None, ge=0, le=100)
+    carbs: float | None = Field(default=None, ge=0, le=100)
     composition: str | None = None
     category: str | None = Field(default=None, max_length=120)
     cooking_state: str | None = Field(default=None, max_length=64)
@@ -158,9 +167,9 @@ class DishBase(BaseModel):
     category: str = Field(max_length=120)
     portion_size_grams: float = Field(gt=0)
     calories: float = Field(ge=0)
-    protein: float = Field(ge=0)
-    fat: float = Field(ge=0)
-    carbs: float = Field(ge=0)
+    protein: float = Field(ge=0, le=100)
+    fat: float = Field(ge=0, le=100)
+    carbs: float = Field(ge=0, le=100)
     is_vegan: bool = False
     is_gluten_free: bool = False
     is_sugar_free: bool = False
@@ -181,6 +190,15 @@ class DishBase(BaseModel):
     def validate_category(cls, value: str) -> str:
         return validate_choice(value, "category", DISH_CATEGORIES)
 
+    @root_validator
+    def validate_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
+        protein = float(values.get("protein", 0))
+        fat = float(values.get("fat", 0))
+        carbs = float(values.get("carbs", 0))
+        if protein + fat + carbs > 100:
+            raise ValueError("protein + fat + carbs must be less than or equal to 100")
+        return values
+
 
 class DishCreate(DishBase):
     pass
@@ -192,9 +210,9 @@ class DishUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=120)
     portion_size_grams: float | None = Field(default=None, gt=0)
     calories: float | None = Field(default=None, ge=0)
-    protein: float | None = Field(default=None, ge=0)
-    fat: float | None = Field(default=None, ge=0)
-    carbs: float | None = Field(default=None, ge=0)
+    protein: float | None = Field(default=None, ge=0, le=100)
+    fat: float | None = Field(default=None, ge=0, le=100)
+    carbs: float | None = Field(default=None, ge=0, le=100)
     is_vegan: bool | None = None
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None

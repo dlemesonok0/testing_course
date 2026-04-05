@@ -11,6 +11,14 @@ from app.services.files import build_asset_url, save_uploads, validate_image_upl
 router = APIRouter(prefix="/products", tags=["products"])
 
 
+def validate_bju_sum(protein: float, fat: float, carbs: float) -> None:
+    if protein + fat + carbs > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="protein + fat + carbs must be less than or equal to 100",
+        )
+
+
 def serialize_product(product: Product) -> ProductRead:
     photo_urls = [build_asset_url(photo.file_path) for photo in product.photos]
     if not photo_urls and product.photo_path:
@@ -50,20 +58,23 @@ def product_from_form(
     is_sugar_free: bool = Form(False),
     photo_links: list[str] | None = Form(default=None),
 ) -> ProductCreate:
-    return ProductCreate(
-        name=name,
-        calories=calories,
-        protein=protein,
-        fat=fat,
-        carbs=carbs,
-        composition=composition,
-        category=category,
-        cooking_state=cooking_state,
-        is_vegan=is_vegan,
-        is_gluten_free=is_gluten_free,
-        is_sugar_free=is_sugar_free,
-        photo_links=[link.strip() for link in (photo_links or []) if link.strip()],
-    )
+    try:
+        return ProductCreate(
+            name=name,
+            calories=calories,
+            protein=protein,
+            fat=fat,
+            carbs=carbs,
+            composition=composition,
+            category=category,
+            cooking_state=cooking_state,
+            is_vegan=is_vegan,
+            is_gluten_free=is_gluten_free,
+            is_sugar_free=is_sugar_free,
+            photo_links=[link.strip() for link in (photo_links or []) if link.strip()],
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
 
 
 def parse_product_update_payload(payload: dict[str, object]) -> ProductUpdate | None:
@@ -162,6 +173,7 @@ def create_product(
     photos: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
 ):
+    validate_bju_sum(payload.protein, payload.fat, payload.carbs)
     uploaded_files = validate_image_uploads(photos)
     if not uploaded_files and photo is not None and photo.filename:
         uploaded_files = validate_image_uploads([photo])
@@ -228,6 +240,10 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
 
     update_data = request_payload.dict(exclude_unset=True, exclude={"photo_links"})
     if update_data:
+        merged_protein = float(update_data.get("protein", product.protein))
+        merged_fat = float(update_data.get("fat", product.fat))
+        merged_carbs = float(update_data.get("carbs", product.carbs))
+        validate_bju_sum(merged_protein, merged_fat, merged_carbs)
         for field, value in update_data.items():
             if field == "composition":
                 setattr(product, field, value or "")
