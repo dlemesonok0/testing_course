@@ -2,14 +2,45 @@ import type { Dish, NutritionDraft, Product } from "./types";
 
 const API_BASE = "http://127.0.0.1:8000";
 
+type ApiValidationIssue = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+function formatApiErrorDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((issue) => {
+        if (!issue || typeof issue !== "object") return "";
+        const typedIssue = issue as ApiValidationIssue;
+        const field = typedIssue.loc?.[typedIssue.loc.length - 1];
+        if (typedIssue.msg && field) return `${String(field)}: ${typedIssue.msg}`;
+        return typedIssue.msg ?? "";
+      })
+      .filter(Boolean);
+    if (messages.length > 0) return messages.join("; ");
+  }
+  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  return "Не удалось обработать запрос";
+}
+
+async function request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new Error("Не удалось связаться с сервером. Проверьте, что backend запущен.");
+  }
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    let detail = "Request failed";
+    let detail = "Не удалось выполнить запрос";
     try {
       const body = await response.json();
-      detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      detail = formatApiErrorDetail(body.detail);
     } catch {
-      detail = response.statusText;
+      detail = response.statusText || detail;
     }
     throw new Error(detail);
   }
@@ -23,15 +54,15 @@ export function assetUrl(path: string | null | undefined) {
 }
 
 export async function getProducts(query = "") {
-  return parseJson<Product[]>(await fetch(`${API_BASE}/products${query}`));
+  return parseJson<Product[]>(await request(`${API_BASE}/products${query}`));
 }
 
 export async function getProduct(id: number) {
-  return parseJson<Product>(await fetch(`${API_BASE}/products/${id}`));
+  return parseJson<Product>(await request(`${API_BASE}/products/${id}`));
 }
 
 export async function createProduct(formData: FormData) {
-  return parseJson<Product>(await fetch(`${API_BASE}/products`, { method: "POST", body: formData }));
+  return parseJson<Product>(await request(`${API_BASE}/products`, { method: "POST", body: formData }));
 }
 
 export async function updateProduct(id: number, payload: Partial<Product> | FormData) {
@@ -43,25 +74,25 @@ export async function updateProduct(id: number, payload: Partial<Product> | Form
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         };
-  return parseJson<Product>(await fetch(`${API_BASE}/products/${id}`, init));
+  return parseJson<Product>(await request(`${API_BASE}/products/${id}`, init));
 }
 
 export async function deleteProduct(id: number) {
-  const response = await fetch(`${API_BASE}/products/${id}`, { method: "DELETE" });
+  const response = await request(`${API_BASE}/products/${id}`, { method: "DELETE" });
   if (response.status === 204) return;
   return parseJson(response);
 }
 
 export async function getDishes(query = "") {
-  return parseJson<Dish[]>(await fetch(`${API_BASE}/dishes${query}`));
+  return parseJson<Dish[]>(await request(`${API_BASE}/dishes${query}`));
 }
 
 export async function getDish(id: number) {
-  return parseJson<Dish>(await fetch(`${API_BASE}/dishes/${id}`));
+  return parseJson<Dish>(await request(`${API_BASE}/dishes/${id}`));
 }
 
 export async function createDish(formData: FormData) {
-  return parseJson<Dish>(await fetch(`${API_BASE}/dishes`, { method: "POST", body: formData }));
+  return parseJson<Dish>(await request(`${API_BASE}/dishes`, { method: "POST", body: formData }));
 }
 
 export async function updateDish(id: number, payload: Record<string, unknown> | FormData) {
@@ -73,16 +104,16 @@ export async function updateDish(id: number, payload: Record<string, unknown> | 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         };
-  return parseJson<Dish>(await fetch(`${API_BASE}/dishes/${id}`, init));
+  return parseJson<Dish>(await request(`${API_BASE}/dishes/${id}`, init));
 }
 
 export async function deleteDish(id: number) {
-  const response = await fetch(`${API_BASE}/dishes/${id}`, { method: "DELETE" });
+  const response = await request(`${API_BASE}/dishes/${id}`, { method: "DELETE" });
   if (response.status === 204) return;
   return parseJson(response);
 }
 
 export async function getNutritionDraft(ingredients: Array<{ product_id: number; quantity_grams: number }>) {
   const params = new URLSearchParams({ ingredients: JSON.stringify(ingredients) });
-  return parseJson<NutritionDraft>(await fetch(`${API_BASE}/dishes/nutrition-draft?${params.toString()}`));
+  return parseJson<NutritionDraft>(await request(`${API_BASE}/dishes/nutrition-draft?${params.toString()}`));
 }
