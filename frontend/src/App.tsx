@@ -29,6 +29,26 @@ function useDebouncedValue<T>(value: T, delay = 350) {
 }
 
 type IngredientInput = { product_id: number; quantity_grams: string };
+const MAX_PHOTOS = 5;
+const PRODUCT_CATEGORIES = ["Замороженный", "Мясной", "Овощи", "Зелень", "Специи", "Крупы", "Консервы", "Жидкость", "Сладости"];
+const DISH_CATEGORIES = ["Десерт", "Первое", "Второе", "Напиток", "Салат", "Суп", "Перекус"];
+const COOKING_STATES = ["Готовый к употреблению", "Полуфабрикат", "Требует приготовления"];
+const PRODUCT_CALORIES_LABEL = "ккал / 100 г";
+const DISH_CALORIES_LABEL = "ккал / порция";
+const PRODUCT_PROTEIN_LABEL = "Белки, г / 100 г";
+const PRODUCT_FAT_LABEL = "Жиры, г / 100 г";
+const PRODUCT_CARBS_LABEL = "Углеводы, г / 100 г";
+const DISH_PROTEIN_LABEL = "Белки, г / порция";
+const DISH_FAT_LABEL = "Жиры, г / порция";
+const DISH_CARBS_LABEL = "Углеводы, г / порция";
+
+function limitPhotos(files: File[]) {
+  return files.slice(0, MAX_PHOTOS);
+}
+
+function formatNutrition(calories: number | string, protein: number | string, fat: number | string, carbs: number | string, caloriesLabel: string) {
+  return `${calories} ${caloriesLabel} · Б ${protein} · Ж ${fat} · У ${carbs}`;
+}
 
 const emptyProduct = {
   name: "",
@@ -37,19 +57,19 @@ const emptyProduct = {
   fat: "0",
   carbs: "0",
   composition: "",
-  category: "",
-  requires_cooking: false,
+  category: PRODUCT_CATEGORIES[0],
+  cooking_state: COOKING_STATES[0],
   is_vegan: false,
   is_gluten_free: false,
   is_sugar_free: false,
-  photo: null as File | null,
+  photos: [] as File[],
 };
 
 const emptyDish = {
   name: "",
   description: "",
-  category: "",
-  servings: "1",
+  category: DISH_CATEGORIES[0],
+  portion_size_grams: "250",
   calories: "0",
   protein: "0",
   fat: "0",
@@ -57,7 +77,7 @@ const emptyDish = {
   is_vegan: false,
   is_gluten_free: false,
   is_sugar_free: false,
-  photo: null as File | null,
+  photos: [] as File[],
   ingredients: [{ product_id: 0, quantity_grams: "100" }] as IngredientInput[],
 };
 
@@ -101,7 +121,7 @@ function ProductList() {
   const [items, setItems] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
   const [category, setCategory] = useState(() => searchParams.get("category") ?? "");
-  const [requiresCooking, setRequiresCooking] = useState(() => searchParams.get("requiresCooking") ?? "");
+  const [cookingState, setCookingState] = useState(() => searchParams.get("cookingState") ?? "");
   const [selectedFlags, setSelectedFlags] = useState<string[]>(() => searchParams.getAll("flags"));
   const [sortBy, setSortBy] = useState(() => searchParams.get("sortBy") ?? "name");
   const [sortOrder, setSortOrder] = useState(() => searchParams.get("sortOrder") ?? "asc");
@@ -113,7 +133,7 @@ function ProductList() {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (category) params.set("category", category);
-      if (requiresCooking) params.set("requiresCooking", requiresCooking);
+      if (cookingState) params.set("cookingState", cookingState);
       selectedFlags.forEach((flag) => params.append("flags", flag));
       params.set("sortBy", sortBy);
       params.set("sortOrder", sortOrder);
@@ -127,33 +147,35 @@ function ProductList() {
 
   useEffect(() => {
     void load();
-  }, [debouncedSearch, category, requiresCooking, selectedFlags.join(","), sortBy, sortOrder]);
+  }, [debouncedSearch, category, cookingState, selectedFlags.join(","), sortBy, sortOrder]);
 
   useEffect(() => {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (category) params.set("category", category);
-    if (requiresCooking) params.set("requiresCooking", requiresCooking);
+    if (cookingState) params.set("cookingState", cookingState);
     selectedFlags.forEach((flag) => params.append("flags", flag));
     if (sortBy !== "name") params.set("sortBy", sortBy);
     if (sortOrder !== "asc") params.set("sortOrder", sortOrder);
     setSearchParams(params, { replace: true });
-  }, [search, category, requiresCooking, selectedFlags, sortBy, sortOrder, setSearchParams]);
+  }, [search, category, cookingState, selectedFlags, sortBy, sortOrder, setSearchParams]);
 
   return (
     <section>
       <Header title="Продукты" subtitle="Подстрочный поиск, CRUD и защита удаления." />
       <div className="panel filters">
         <input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <input placeholder="Категория" value={category} onChange={(e) => setCategory(e.target.value)} />
-        <select value={requiresCooking} onChange={(e) => setRequiresCooking(e.target.value)}>
-          <option value="">Любой вариант готовки</option>
-          <option value="true">Требует готовки</option>
-          <option value="false">Без готовки</option>
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">Любая категория</option>
+          {PRODUCT_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
+        </select>
+        <select value={cookingState} onChange={(e) => setCookingState(e.target.value)}>
+          <option value="">Любая готовность</option>
+          {COOKING_STATES.map((item) => <option value={item} key={item}>{item}</option>)}
         </select>
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
           <option value="name">Название</option>
-          <option value="calories">Калории</option>
+          <option value="calories">{PRODUCT_CALORIES_LABEL}</option>
           <option value="protein">Белки</option>
           <option value="fat">Жиры</option>
           <option value="carbs">Углеводы</option>
@@ -170,10 +192,10 @@ function ProductList() {
         items={items.map((product) => ({
           id: product.id,
           title: product.name,
-          subtitle: product.category,
-          description: product.composition,
+          subtitle: `${product.category} · ${product.cooking_state}`,
+          description: product.composition ?? "Состав не указан",
           image: product.photo_url,
-          meta: `${product.calories} ккал · Б ${product.protein} · Ж ${product.fat} · У ${product.carbs}`,
+          meta: formatNutrition(product.calories, product.protein, product.fat, product.carbs, PRODUCT_CALORIES_LABEL),
           href: `/products/${product.id}`,
           editHref: `/products/${product.id}/edit`,
           onDelete: async () => {
@@ -236,10 +258,13 @@ function DishList() {
       <Header title="Блюда" subtitle="Черновой расчет КБЖУ строится по составу." />
       <div className="panel filters">
         <input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <input placeholder="Категория" value={category} onChange={(e) => setCategory(e.target.value)} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">Любая категория</option>
+          {DISH_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
+        </select>
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
           <option value="name">Название</option>
-          <option value="calories">Калории</option>
+          <option value="calories">{DISH_CALORIES_LABEL}</option>
           <option value="protein">Белки</option>
           <option value="fat">Жиры</option>
           <option value="carbs">Углеводы</option>
@@ -256,10 +281,10 @@ function DishList() {
         items={items.map((dish) => ({
           id: dish.id,
           title: dish.name,
-          subtitle: `${dish.category} · ${dish.servings} порц.`,
-          description: dish.description,
+          subtitle: `${dish.category} · ${dish.portion_size_grams} г / порция`,
+          description: dish.description ?? "Описание не указано",
           image: dish.photo_url,
-          meta: `${dish.calories} ккал · Б ${dish.protein} · Ж ${dish.fat} · У ${dish.carbs}`,
+          meta: formatNutrition(dish.calories, dish.protein, dish.fat, dish.carbs, DISH_CALORIES_LABEL),
           href: `/dishes/${dish.id}`,
           editHref: `/dishes/${dish.id}/edit`,
           onDelete: async () => {
@@ -313,10 +338,26 @@ function ProductCard() {
   if (!item) return <p>Загрузка...</p>;
   return (
     <section className="detail">
-      <Header title={item.name} subtitle={item.category} />
-      {item.photo_url && <img className="hero" src={assetUrl(item.photo_url)} alt={item.name} />}
-      <p>{item.composition}</p>
-      <p className="nutrition">{item.calories} ккал · Б {item.protein} · Ж {item.fat} · У {item.carbs}</p>
+      <Header title={item.name} subtitle={`${item.category} · ${item.cooking_state}`} />
+      {item.photo_urls.length > 0 && (
+        <div className="photo-gallery">
+          <img className="hero" src={assetUrl(item.photo_urls[0])} alt={item.name} />
+          {item.photo_urls.length > 1 && (
+            <div className="photo-strip">
+              {item.photo_urls.map((photoUrl, index) => (
+                <img
+                  className="photo-thumb"
+                  key={`${photoUrl}-${index}`}
+                  src={assetUrl(photoUrl)}
+                  alt={`${item.name} ${index + 1}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <p>{item.composition ?? "Состав не указан"}</p>
+      <p className="nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, PRODUCT_CALORIES_LABEL)}</p>
     </section>
   );
 }
@@ -333,12 +374,28 @@ function DishCard() {
   if (!item) return <p>Загрузка...</p>;
   return (
     <section className="detail">
-      <Header title={item.name} subtitle={`${item.category} · ${item.servings} порц.`} />
-      {item.photo_url && <img className="hero" src={assetUrl(item.photo_url)} alt={item.name} />}
-      <p>{item.description}</p>
-      <p className="nutrition">{item.calories} ккал · Б {item.protein} · Ж {item.fat} · У {item.carbs}</p>
+      <Header title={item.name} subtitle={`${item.category} · ${item.portion_size_grams} г / порция`} />
+      {item.photo_urls.length > 0 && (
+        <div className="photo-gallery">
+          <img className="hero" src={assetUrl(item.photo_urls[0])} alt={item.name} />
+          {item.photo_urls.length > 1 && (
+            <div className="photo-strip">
+              {item.photo_urls.map((photoUrl, index) => (
+                <img
+                  className="photo-thumb"
+                  key={`${photoUrl}-${index}`}
+                  src={assetUrl(photoUrl)}
+                  alt={`${item.name} ${index + 1}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <p>{item.description ?? "Описание не указано"}</p>
+      <p className="nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, DISH_CALORIES_LABEL)}</p>
       <div className="panel">
-        <h3>Состав</h3>
+        <h3>Состав на одну порцию</h3>
         <ul className="ingredients">
           {item.ingredients.map((ingredient) => (
             <li key={`${ingredient.product_id}-${ingredient.quantity_grams}`}>
@@ -356,57 +413,54 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [form, setForm] = useState(emptyProduct);
+  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!edit || !id) return;
     void getProduct(Number(id)).then((item) =>
-      setForm({
-        name: item.name,
-        calories: String(item.calories),
-        protein: String(item.protein),
-        fat: String(item.fat),
-        carbs: String(item.carbs),
-        composition: item.composition,
-        category: item.category,
-        requires_cooking: item.requires_cooking,
-        is_vegan: item.is_vegan,
-        is_gluten_free: item.is_gluten_free,
-        is_sugar_free: item.is_sugar_free,
-        photo: null,
-      })
+      {
+        setExistingPhotoUrls(item.photo_urls);
+        setForm({
+          name: item.name,
+          calories: String(item.calories),
+          protein: String(item.protein),
+          fat: String(item.fat),
+          carbs: String(item.carbs),
+          composition: item.composition ?? "",
+          category: item.category,
+          cooking_state: item.cooking_state,
+          is_vegan: item.is_vegan,
+          is_gluten_free: item.is_gluten_free,
+          is_sugar_free: item.is_sugar_free,
+          photos: [],
+        });
+      }
     );
   }, [edit, id]);
 
   const submit = async () => {
     try {
+      const body = new FormData();
+      body.append("name", form.name);
+      body.append("calories", form.calories);
+      body.append("protein", form.protein);
+      body.append("fat", form.fat);
+      body.append("carbs", form.carbs);
+      body.append("composition", form.composition);
+      body.append("category", form.category);
+      body.append("cooking_state", form.cooking_state);
+      body.append("is_vegan", String(form.is_vegan));
+      body.append("is_gluten_free", String(form.is_gluten_free));
+      body.append("is_sugar_free", String(form.is_sugar_free));
+      form.photos.forEach((photo) => body.append("photos", photo));
+
       if (edit && id) {
-        const saved = await updateProduct(Number(id), {
-          name: form.name,
-          calories: Number(form.calories),
-          protein: Number(form.protein),
-          fat: Number(form.fat),
-          carbs: Number(form.carbs),
-          composition: form.composition,
-          category: form.category,
-          requires_cooking: form.requires_cooking,
-          is_vegan: form.is_vegan,
-          is_gluten_free: form.is_gluten_free,
-          is_sugar_free: form.is_sugar_free,
-        });
+        const saved = await updateProduct(Number(id), body);
         navigate(`/products/${saved.id}`);
         return;
       }
 
-      const body = new FormData();
-      Object.entries(form).forEach(([key, value]) => {
-        if (key === "photo") {
-          if (value) body.append("photo", value as File);
-        } else {
-          const serialized = typeof value === "boolean" ? (value ? "true" : "false") : String(value);
-          body.append(key, serialized);
-        }
-      });
       const saved = await createProduct(body);
       navigate(`/products/${saved.id}`);
     } catch (e) {
@@ -416,25 +470,65 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
 
   return (
     <section>
-      <Header title={edit ? "Редактирование продукта" : "Новый продукт"} subtitle="Фото загружается только при создании, остальное редактируется через API." />
+      <Header title={edit ? "Редактирование продукта" : "Новый продукт"} subtitle={`Для продукта можно загрузить до ${MAX_PHOTOS} фотографий.`} />
       {error && <p className="error">{error}</p>}
       <div className="form-grid">
         <Field label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
-        <Field label="Категория" value={form.category} onChange={(value) => setForm((prev) => ({ ...prev, category: value }))} />
+        <label className="field">
+          <span>Категория</span>
+          <select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>
+            {PRODUCT_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
+          </select>
+        </label>
         <Field label="Состав" value={form.composition} onChange={(value) => setForm((prev) => ({ ...prev, composition: value }))} multiline />
-        <Field label="Калории" value={form.calories} onChange={(value) => setForm((prev) => ({ ...prev, calories: value }))} type="number" />
-        <Field label="Белки" value={form.protein} onChange={(value) => setForm((prev) => ({ ...prev, protein: value }))} type="number" />
-        <Field label="Жиры" value={form.fat} onChange={(value) => setForm((prev) => ({ ...prev, fat: value }))} type="number" />
-        <Field label="Углеводы" value={form.carbs} onChange={(value) => setForm((prev) => ({ ...prev, carbs: value }))} type="number" />
-        <label className="checkbox"><input type="checkbox" checked={form.requires_cooking} onChange={(e) => setForm((prev) => ({ ...prev, requires_cooking: e.target.checked }))} />Требует готовки</label>
+        <label className="field">
+          <span>Степень готовности</span>
+          <select value={form.cooking_state} onChange={(e) => setForm((prev) => ({ ...prev, cooking_state: e.target.value }))}>
+            {COOKING_STATES.map((item) => <option value={item} key={item}>{item}</option>)}
+          </select>
+        </label>
+        <Field label={PRODUCT_CALORIES_LABEL} value={form.calories} onChange={(value) => setForm((prev) => ({ ...prev, calories: value }))} type="number" />
+        <Field label={PRODUCT_PROTEIN_LABEL} value={form.protein} onChange={(value) => setForm((prev) => ({ ...prev, protein: value }))} type="number" />
+        <Field label={PRODUCT_FAT_LABEL} value={form.fat} onChange={(value) => setForm((prev) => ({ ...prev, fat: value }))} type="number" />
+        <Field label={PRODUCT_CARBS_LABEL} value={form.carbs} onChange={(value) => setForm((prev) => ({ ...prev, carbs: value }))} type="number" />
         {flags.map(([key, label]) => (
           <label className="checkbox" key={key}>
             <input type="checkbox" checked={form[key]} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.checked }))} />
             {label}
           </label>
         ))}
-        {!edit && <input type="file" accept="image/*" onChange={(e) => setForm((prev) => ({ ...prev, photo: e.target.files?.[0] ?? null }))} />}
+        <div className="field photo-upload">
+          <span>Фотографии</span>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => {
+              const photos = limitPhotos(Array.from(e.target.files ?? []));
+              setError((e.target.files?.length ?? 0) > MAX_PHOTOS ? `Можно выбрать не более ${MAX_PHOTOS} фотографий.` : "");
+              setForm((prev) => ({ ...prev, photos }));
+            }}
+          />
+          {form.photos.length > 0 && (
+            <div className="photo-list">
+              {form.photos.map((photo) => (
+                <span className="photo-chip" key={`${photo.name}-${photo.size}`}>
+                  {photo.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+      {existingPhotoUrls.length > 0 && (
+        <div className="panel">
+          <div className="photo-strip">
+            {existingPhotoUrls.map((photoUrl, index) => (
+              <img className="photo-thumb" key={`${photoUrl}-${index}`} src={assetUrl(photoUrl)} alt={`product-photo-${index + 1}`} />
+            ))}
+          </div>
+        </div>
+      )}
       <button className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );
@@ -445,6 +539,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [form, setForm] = useState(emptyDish);
+  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [draft, setDraft] = useState<NutritionDraft | null>(null);
   const [error, setError] = useState("");
 
@@ -454,12 +549,13 @@ function DishForm({ edit = false }: { edit?: boolean }) {
 
   useEffect(() => {
     if (!edit || !id) return;
-    void getDish(Number(id)).then((item) =>
+    void getDish(Number(id)).then((item) => {
+      setExistingPhotoUrls(item.photo_urls);
       setForm({
         name: item.name,
-        description: item.description,
+        description: item.description ?? "",
         category: item.category,
-        servings: String(item.servings),
+        portion_size_grams: String(item.portion_size_grams),
         calories: String(item.calories),
         protein: String(item.protein),
         fat: String(item.fat),
@@ -467,13 +563,13 @@ function DishForm({ edit = false }: { edit?: boolean }) {
         is_vegan: item.is_vegan,
         is_gluten_free: item.is_gluten_free,
         is_sugar_free: item.is_sugar_free,
-        photo: null,
+        photos: [],
         ingredients: item.ingredients.map((ingredient) => ({
           product_id: ingredient.product_id,
           quantity_grams: String(ingredient.quantity_grams),
         })),
-      })
-    );
+      });
+    });
   }, [edit, id]);
 
   useEffect(() => {
@@ -507,40 +603,27 @@ function DishForm({ edit = false }: { edit?: boolean }) {
       product_id: item.product_id,
       quantity_grams: Number(item.quantity_grams),
     }));
+    const category = form.category.trim();
+    const body = new FormData();
+    body.append("name", form.name);
+    body.append("description", form.description);
+    if (category) body.append("category", category);
+    body.append("portion_size_grams", form.portion_size_grams);
+    body.append("calories", form.calories);
+    body.append("protein", form.protein);
+    body.append("fat", form.fat);
+    body.append("carbs", form.carbs);
+    body.append("is_vegan", String(form.is_vegan));
+    body.append("is_gluten_free", String(form.is_gluten_free));
+    body.append("is_sugar_free", String(form.is_sugar_free));
+    body.append("ingredients", JSON.stringify(ingredients));
+    form.photos.forEach((photo) => body.append("photos", photo));
     try {
       if (edit && id) {
-        const saved = await updateDish(Number(id), {
-          name: form.name,
-          description: form.description,
-          category: form.category,
-          servings: Number(form.servings),
-          calories: Number(form.calories),
-          protein: Number(form.protein),
-          fat: Number(form.fat),
-          carbs: Number(form.carbs),
-          is_vegan: form.is_vegan,
-          is_gluten_free: form.is_gluten_free,
-          is_sugar_free: form.is_sugar_free,
-          ingredients,
-        });
+        const saved = await updateDish(Number(id), body);
         navigate(`/dishes/${saved.id}`);
         return;
       }
-
-      const body = new FormData();
-      body.append("name", form.name);
-      body.append("description", form.description);
-      body.append("category", form.category);
-      body.append("servings", form.servings);
-      body.append("calories", form.calories);
-      body.append("protein", form.protein);
-      body.append("fat", form.fat);
-      body.append("carbs", form.carbs);
-      body.append("is_vegan", String(form.is_vegan));
-      body.append("is_gluten_free", String(form.is_gluten_free));
-      body.append("is_sugar_free", String(form.is_sugar_free));
-      body.append("ingredients", JSON.stringify(ingredients));
-      if (form.photo) body.append("photo", form.photo);
       const saved = await createDish(body);
       navigate(`/dishes/${saved.id}`);
     } catch (e) {
@@ -552,28 +635,63 @@ function DishForm({ edit = false }: { edit?: boolean }) {
 
   return (
     <section>
-      <Header title={edit ? "Редактирование блюда" : "Новое блюдо"} subtitle="Флаги доступны только если их допускает состав блюда." />
+      <Header title={edit ? "Редактирование блюда" : "Новое блюдо"} subtitle={`Пищевая ценность считается на одну порцию, фото можно загрузить до ${MAX_PHOTOS} штук.`} />
       {error && <p className="error">{error}</p>}
       <div className="form-grid">
         <Field label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
-        <Field label="Категория" value={form.category} onChange={(value) => setForm((prev) => ({ ...prev, category: value }))} />
+        <label className="field">
+          <span>Категория</span>
+          <select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>
+            {DISH_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
+          </select>
+        </label>
         <Field label="Описание" value={form.description} onChange={(value) => setForm((prev) => ({ ...prev, description: value }))} multiline />
-        <Field label="Порции" value={form.servings} onChange={(value) => setForm((prev) => ({ ...prev, servings: value }))} type="number" />
-        <Field label="Калории" value={form.calories} onChange={(value) => setForm((prev) => ({ ...prev, calories: value }))} type="number" />
-        <Field label="Белки" value={form.protein} onChange={(value) => setForm((prev) => ({ ...prev, protein: value }))} type="number" />
-        <Field label="Жиры" value={form.fat} onChange={(value) => setForm((prev) => ({ ...prev, fat: value }))} type="number" />
-        <Field label="Углеводы" value={form.carbs} onChange={(value) => setForm((prev) => ({ ...prev, carbs: value }))} type="number" />
+        <Field label="Размер порции, г" value={form.portion_size_grams} onChange={(value) => setForm((prev) => ({ ...prev, portion_size_grams: value }))} type="number" />
+        <Field label={DISH_CALORIES_LABEL} value={form.calories} onChange={(value) => setForm((prev) => ({ ...prev, calories: value }))} type="number" />
+        <Field label={DISH_PROTEIN_LABEL} value={form.protein} onChange={(value) => setForm((prev) => ({ ...prev, protein: value }))} type="number" />
+        <Field label={DISH_FAT_LABEL} value={form.fat} onChange={(value) => setForm((prev) => ({ ...prev, fat: value }))} type="number" />
+        <Field label={DISH_CARBS_LABEL} value={form.carbs} onChange={(value) => setForm((prev) => ({ ...prev, carbs: value }))} type="number" />
         {flags.map(([key, label, apiFlag]) => (
           <label className="checkbox" key={key}>
             <input type="checkbox" disabled={!allowed.includes(apiFlag)} checked={form[key]} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.checked }))} />
             {label}
           </label>
         ))}
-        {!edit && <input type="file" accept="image/*" onChange={(e) => setForm((prev) => ({ ...prev, photo: e.target.files?.[0] ?? null }))} />}
+        <div className="field photo-upload">
+            <span>Фотографии</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => {
+                const photos = limitPhotos(Array.from(e.target.files ?? []));
+                setError((e.target.files?.length ?? 0) > MAX_PHOTOS ? `Можно выбрать не более ${MAX_PHOTOS} фотографий.` : "");
+                setForm((prev) => ({ ...prev, photos }));
+              }}
+            />
+            {form.photos.length > 0 && (
+              <div className="photo-list">
+                {form.photos.map((photo) => (
+                  <span className="photo-chip" key={`${photo.name}-${photo.size}`}>
+                    {photo.name}
+                  </span>
+                ))}
+              </div>
+            )}
+        </div>
       </div>
+      {existingPhotoUrls.length > 0 && (
+        <div className="panel">
+          <div className="photo-strip">
+            {existingPhotoUrls.map((photoUrl, index) => (
+              <img className="photo-thumb" key={`${photoUrl}-${index}`} src={assetUrl(photoUrl)} alt={`dish-photo-${index + 1}`} />
+            ))}
+          </div>
+        </div>
+      )}
       <div className="panel">
         <div className="ingredients-header">
-          <h3>Ингредиенты</h3>
+          <h3>Состав на одну порцию</h3>
           <button onClick={() => setForm((prev) => ({ ...prev, ingredients: [...prev.ingredients, { product_id: 0, quantity_grams: "100" }] }))}>Добавить</button>
         </div>
         {form.ingredients.map((ingredient, index) => (
@@ -587,7 +705,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
           </div>
         ))}
       </div>
-      {draft && <div className="panel accent"><strong>Черновик КБЖУ:</strong> {draft.calories} / {draft.protein} / {draft.fat} / {draft.carbs}</div>}
+      {draft && <div className="panel accent"><strong>Черновик КБЖУ на порцию:</strong> {draft.calories} / {draft.protein} / {draft.fat} / {draft.carbs}</div>}
       <button className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );

@@ -1,25 +1,46 @@
-import sqlite3
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from pydantic import ValidationError
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.schemas import PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
-from app.services.files import save_upload
+from app.models import Dish, DishIngredient, Product, ProductPhoto
+from app.schemas import MAX_PHOTO_COUNT, PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
+from app.services.files import build_asset_url, save_uploads, validate_image_uploads
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-def as_product(row: sqlite3.Row) -> ProductRead:
-    data = dict(row)
-    return ProductRead.parse_obj(
-        {
-            **data,
-            "requires_cooking": bool(data["requires_cooking"]),
-            "is_vegan": bool(data["is_vegan"]),
-            "is_gluten_free": bool(data["is_gluten_free"]),
-            "is_sugar_free": bool(data["is_sugar_free"]),
-            "photo_url": f"/uploads/{data['photo_path']}" if data.get("photo_path") else None,
-        }
+def validate_bju_sum(protein: float, fat: float, carbs: float) -> None:
+    if protein + fat + carbs > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="protein + fat + carbs must be less than or equal to 100",
+        )
+
+
+def serialize_product(product: Product) -> ProductRead:
+    photo_urls = [build_asset_url(photo.file_path) for photo in product.photos]
+    if not photo_urls and product.photo_path:
+        photo_urls = [build_asset_url(product.photo_path)]
+
+    return ProductRead(
+        id=product.id,
+        name=product.name,
+        calories=product.calories,
+        protein=product.protein,
+        fat=product.fat,
+        carbs=product.carbs,
+        composition=product.composition or None,
+        category=product.category,
+        cooking_state=product.cooking_state,
+        is_vegan=product.is_vegan,
+        is_gluten_free=product.is_gluten_free,
+        is_sugar_free=product.is_sugar_free,
+        photo_url=photo_urls[0] if photo_urls else None,
+        photo_urls=photo_urls,
+        created_at=product.created_at,
+        updated_at=product.updated_at,
     )
 
 
@@ -29,141 +50,235 @@ def product_from_form(
     protein: float = Form(...),
     fat: float = Form(...),
     carbs: float = Form(...),
-    composition: str = Form(...),
+    composition: str | None = Form(default=None),
     category: str = Form(...),
-    requires_cooking: bool = Form(False),
+    cooking_state: str = Form(...),
     is_vegan: bool = Form(False),
     is_gluten_free: bool = Form(False),
     is_sugar_free: bool = Form(False),
+    photo_links: list[str] | None = Form(default=None),
 ) -> ProductCreate:
-    return ProductCreate(
-        name=name,
-        calories=calories,
-        protein=protein,
-        fat=fat,
-        carbs=carbs,
-        composition=composition,
-        category=category,
-        requires_cooking=requires_cooking,
-        is_vegan=is_vegan,
-        is_gluten_free=is_gluten_free,
-        is_sugar_free=is_sugar_free,
-    )
+    try:
+        return ProductCreate(
+            name=name,
+            calories=calories,
+            protein=protein,
+            fat=fat,
+            carbs=carbs,
+            composition=composition,
+            category=category,
+            cooking_state=cooking_state,
+            is_vegan=is_vegan,
+            is_gluten_free=is_gluten_free,
+            is_sugar_free=is_sugar_free,
+            photo_links=[link.strip() for link in (photo_links or []) if link.strip()],
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+
+
+def parse_product_update_payload(payload: dict[str, object]) -> ProductUpdate | None:
+    if not payload:
+        return None
+    try:
+        return ProductUpdate(**payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+
+
+def product_update_from_form_data(form_data) -> ProductUpdate | None:
+    payload: dict[str, object] = {}
+    for field in (
+        "name",
+        "calories",
+        "protein",
+        "fat",
+        "carbs",
+        "composition",
+        "category",
+        "cooking_state",
+        "is_vegan",
+        "is_gluten_free",
+        "is_sugar_free",
+    ):
+        if field in form_data:
+            payload[field] = form_data[field]
+    if "photo_links" in form_data:
+        payload["photo_links"] = [link.strip() for link in form_data.getlist("photo_links") if str(link).strip()]
+    return parse_product_update_payload(payload)
+
+
+def uploaded_files_from_form(form_data, field_name: str) -> list[UploadFile]:
+    return [item for item in form_data.getlist(field_name) if getattr(item, "filename", None)]
+
+
+def normalize_product_photo_links(photo_links: list[object] | None) -> list[str]:
+    return [str(link).strip() for link in (photo_links or []) if str(link).strip()]
+
+
+def validate_product_photo_batch(uploaded_files: list[UploadFile], photo_links: list[str]) -> None:
+    if len(uploaded_files) + len(photo_links) > MAX_PHOTO_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"No more than {MAX_PHOTO_COUNT} photos are allowed",
+        )
 
 
 @router.get("", response_model=list[ProductRead])
 def list_products(
     search: str | None = None,
     category: str | None = None,
-    requiresCooking: bool | None = Query(default=None),
+    cookingState: str | None = Query(default=None),
     flags: list[str] = Query(default=[]),
     sortBy: str = Query(default="name"),
     sortOrder: str = Query(default="asc"),
-    db: sqlite3.Connection = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    params = SearchParams(search=search, category=category, requires_cooking=requiresCooking, flags=flags, sort_by=sortBy, sort_order=sortOrder)
+    params = SearchParams(
+        search=search,
+        category=category,
+        cooking_state=cookingState,
+        flags=flags,
+        sort_by=sortBy,
+        sort_order=sortOrder,
+    )
     if params.sort_by not in PRODUCT_SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Unsupported sort field")
 
-    clauses: list[str] = []
-    values: list[object] = []
+    stmt = select(Product).options(selectinload(Product.photos))
     if params.search:
-        clauses.append("LOWER(name) LIKE ?")
-        values.append(f"%{params.search.lower()}%")
+        search_pattern = f"%{params.search.casefold()}%"
+        stmt = stmt.where(
+            or_(
+                func.unicode_lower(Product.name).like(search_pattern),
+                func.unicode_lower(Product.category).like(search_pattern),
+            )
+        )
     if params.category:
-        clauses.append("category = ?")
-        values.append(params.category)
-    if params.requires_cooking is not None:
-        clauses.append("requires_cooking = ?")
-        values.append(int(params.requires_cooking))
+        stmt = stmt.where(func.unicode_lower(Product.category).like(f"%{params.category.casefold()}%"))
+    if params.cooking_state is not None:
+        stmt = stmt.where(Product.cooking_state == params.cooking_state)
     for flag in params.flags:
-        clauses.append(f"is_{flag} = 1")
+        stmt = stmt.where(getattr(Product, f"is_{flag}").is_(True))
 
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    rows = db.execute(
-        f"SELECT * FROM products {where} ORDER BY {params.sort_by} {params.sort_order.upper()}",
-        values,
-    ).fetchall()
-    return [as_product(row) for row in rows]
+    sort_column = getattr(Product, params.sort_by)
+    stmt = stmt.order_by(sort_column.desc() if params.sort_order == "desc" else sort_column.asc())
+    return [serialize_product(product) for product in db.scalars(stmt).all()]
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: ProductCreate = Depends(product_from_form),
     photo: UploadFile | None = File(default=None),
-    db: sqlite3.Connection = Depends(get_db),
+    photos: list[UploadFile] | None = File(default=None),
+    db: Session = Depends(get_db),
 ):
-    cursor = db.execute(
-        """
-        INSERT INTO products (
-            name, photo_path, calories, protein, fat, carbs, composition, category,
-            requires_cooking, is_vegan, is_gluten_free, is_sugar_free
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            payload.name,
-            save_upload(photo),
-            payload.calories,
-            payload.protein,
-            payload.fat,
-            payload.carbs,
-            payload.composition,
-            payload.category,
-            int(payload.requires_cooking),
-            int(payload.is_vegan),
-            int(payload.is_gluten_free),
-            int(payload.is_sugar_free),
-        ),
+    validate_bju_sum(payload.protein, payload.fat, payload.carbs)
+    uploaded_files = validate_image_uploads(photos)
+    if not uploaded_files and photo is not None and photo.filename:
+        uploaded_files = validate_image_uploads([photo])
+    photo_links = normalize_product_photo_links(payload.photo_links)
+    validate_product_photo_batch(uploaded_files, photo_links)
+    saved_photo_paths = save_uploads(uploaded_files)
+    all_photo_sources = [*saved_photo_paths, *photo_links]
+
+    product = Product(
+        name=payload.name,
+        photo_path=all_photo_sources[0] if all_photo_sources else None,
+        calories=payload.calories,
+        protein=payload.protein,
+        fat=payload.fat,
+        carbs=payload.carbs,
+        composition=payload.composition or "",
+        category=payload.category,
+        cooking_state=payload.cooking_state,
+        is_vegan=payload.is_vegan,
+        is_gluten_free=payload.is_gluten_free,
+        is_sugar_free=payload.is_sugar_free,
     )
+    for index, file_path in enumerate(all_photo_sources):
+        product.photos.append(ProductPhoto(file_path=file_path, position=index))
+    db.add(product)
     db.commit()
-    row = db.execute("SELECT * FROM products WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return as_product(row)
+    db.refresh(product)
+    return serialize_product(product)
 
 
 @router.get("/{product_id}", response_model=ProductRead)
-def get_product(product_id: int, db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not row:
+def get_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.scalar(select(Product).options(selectinload(Product.photos)).where(Product.id == product_id))
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
-    return as_product(row)
+    return serialize_product(product)
 
 
 @router.patch("/{product_id}", response_model=ProductRead)
-def update_product(product_id: int, payload: ProductUpdate, db: sqlite3.Connection = Depends(get_db)):
-    existing = db.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not existing:
+async def update_product(product_id: int, request: Request, db: Session = Depends(get_db)):
+    product = db.scalar(select(Product).options(selectinload(Product.photos)).where(Product.id == product_id))
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    data = payload.dict(exclude_unset=True)
-    if data:
-        assignments = ", ".join(f"{field} = ?" for field in data.keys())
-        values = list(data.values()) + [product_id]
-        db.execute(f"UPDATE products SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+    content_type = request.headers.get("content-type", "")
+    uploaded_files: list[UploadFile] = []
+    if content_type.startswith("application/json"):
+        try:
+            raw_payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+        request_payload = parse_product_update_payload(raw_payload) or ProductUpdate()
+    else:
+        form_data = await request.form()
+        request_payload = product_update_from_form_data(form_data) or ProductUpdate()
+        uploaded_files = validate_image_uploads(uploaded_files_from_form(form_data, "photos"))
+        if not uploaded_files:
+            uploaded_files = validate_image_uploads(uploaded_files_from_form(form_data, "photo"))
+
+    photo_links_provided = "photo_links" in request_payload.__fields_set__
+    photo_links = normalize_product_photo_links(request_payload.photo_links if photo_links_provided else None)
+    validate_product_photo_batch(uploaded_files, photo_links)
+    new_photo_paths = save_uploads(uploaded_files)
+
+    update_data = request_payload.dict(exclude_unset=True, exclude={"photo_links"})
+    if update_data:
+        merged_protein = float(update_data.get("protein", product.protein))
+        merged_fat = float(update_data.get("fat", product.fat))
+        merged_carbs = float(update_data.get("carbs", product.carbs))
+        validate_bju_sum(merged_protein, merged_fat, merged_carbs)
+        for field, value in update_data.items():
+            if field == "composition":
+                setattr(product, field, value or "")
+            else:
+                setattr(product, field, value)
+    if photo_links_provided or new_photo_paths:
+        all_photo_sources = [*new_photo_paths, *photo_links]
+        product.photo_path = all_photo_sources[0] if all_photo_sources else None
+        product.photos.clear()
+        for index, file_path in enumerate(all_photo_sources):
+            product.photos.append(ProductPhoto(file_path=file_path, position=index))
+    if update_data or photo_links_provided or new_photo_paths:
         db.commit()
-    return as_product(db.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone())
+        db.refresh(product)
+    return serialize_product(product)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_product(product_id: int, db: sqlite3.Connection = Depends(get_db)):
-    product = db.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not product:
+def delete_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    linked = db.execute(
-        """
-        SELECT d.name
-        FROM dishes d
-        JOIN dish_ingredients di ON di.dish_id = d.id
-        WHERE di.product_id = ?
-        """,
-        (product_id,),
-    ).fetchall()
-    if linked:
+    linked_dishes = db.scalars(
+        select(Dish.name)
+        .join(Dish.ingredients)
+        .where(DishIngredient.product_id == product_id)
+        .order_by(Dish.name.asc())
+    ).all()
+    if linked_dishes:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"detail": "Product is used in dishes", "dishes": [row["name"] for row in linked]},
+            detail={"detail": "Product is used in dishes", "dishes": linked_dishes},
         )
 
-    db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    db.delete(product)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
