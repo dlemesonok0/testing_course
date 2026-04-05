@@ -267,7 +267,12 @@ def main() -> None:
 
         products_by_name: dict[str, Product] = {}
         for payload in PRODUCTS:
-            product = Product(**payload)
+            product_payload = dict(payload)
+            requires_cooking = bool(product_payload.pop("requires_cooking", False))
+            product_payload["cooking_state"] = (
+                "Требует приготовления" if requires_cooking else "Готовый к употреблению"
+            )
+            product = Product(**product_payload)
             session.add(product)
             products_by_name[product.name] = product
         session.flush()
@@ -278,11 +283,13 @@ def main() -> None:
                 for product_name, quantity_grams in payload["ingredients"]
             ]
             draft = build_draft(resolved_ingredients)
+            total_weight = sum(quantity_grams for _, quantity_grams in resolved_ingredients)
+            servings = float(payload["servings"])
             dish = Dish(
                 name=payload["name"],
                 description=payload["description"],
                 category=payload["category"],
-                servings=payload["servings"],
+                portion_size_grams=round(total_weight / servings, 2) if servings else total_weight,
                 calories=draft["calories"],
                 protein=draft["protein"],
                 fat=draft["fat"],
