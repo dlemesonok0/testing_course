@@ -5,16 +5,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import Dish, DishIngredient, Product, ProductPhoto
-from app.schemas import PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
-from app.services.files import save_upload, save_uploads
+from app.schemas import MAX_PHOTO_COUNT, PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
+from app.services.files import build_asset_url, save_uploads, validate_image_uploads
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 
 def serialize_product(product: Product) -> ProductRead:
-    photo_urls = [f"/uploads/{photo.file_path}" for photo in product.photos]
+    photo_urls = [build_asset_url(photo.file_path) for photo in product.photos]
     if not photo_urls and product.photo_path:
-        photo_urls = [f"/uploads/{product.photo_path}"]
+        photo_urls = [build_asset_url(product.photo_path)]
 
     return ProductRead(
         id=product.id,
@@ -23,9 +23,9 @@ def serialize_product(product: Product) -> ProductRead:
         protein=product.protein,
         fat=product.fat,
         carbs=product.carbs,
-        composition=product.composition,
+        composition=product.composition or None,
         category=product.category,
-        requires_cooking=product.requires_cooking,
+        cooking_state=product.cooking_state,
         is_vegan=product.is_vegan,
         is_gluten_free=product.is_gluten_free,
         is_sugar_free=product.is_sugar_free,
@@ -42,12 +42,13 @@ def product_from_form(
     protein: float = Form(...),
     fat: float = Form(...),
     carbs: float = Form(...),
-    composition: str = Form(...),
+    composition: str | None = Form(default=None),
     category: str = Form(...),
-    requires_cooking: bool = Form(False),
+    cooking_state: str = Form(...),
     is_vegan: bool = Form(False),
     is_gluten_free: bool = Form(False),
     is_sugar_free: bool = Form(False),
+    photo_links: list[str] | None = Form(default=None),
 ) -> ProductCreate:
     return ProductCreate(
         name=name,
@@ -57,10 +58,11 @@ def product_from_form(
         carbs=carbs,
         composition=composition,
         category=category,
-        requires_cooking=requires_cooking,
+        cooking_state=cooking_state,
         is_vegan=is_vegan,
         is_gluten_free=is_gluten_free,
         is_sugar_free=is_sugar_free,
+        photo_links=[link.strip() for link in (photo_links or []) if link.strip()],
     )
 
 
@@ -83,13 +85,15 @@ def product_update_from_form_data(form_data) -> ProductUpdate | None:
         "carbs",
         "composition",
         "category",
-        "requires_cooking",
+        "cooking_state",
         "is_vegan",
         "is_gluten_free",
         "is_sugar_free",
     ):
         if field in form_data:
             payload[field] = form_data[field]
+    if "photo_links" in form_data:
+        payload["photo_links"] = [link.strip() for link in form_data.getlist("photo_links") if str(link).strip()]
     return parse_product_update_payload(payload)
 
 
@@ -97,11 +101,23 @@ def uploaded_files_from_form(form_data, field_name: str) -> list[UploadFile]:
     return [item for item in form_data.getlist(field_name) if getattr(item, "filename", None)]
 
 
+def normalize_product_photo_links(photo_links: list[object] | None) -> list[str]:
+    return [str(link).strip() for link in (photo_links or []) if str(link).strip()]
+
+
+def validate_product_photo_batch(uploaded_files: list[UploadFile], photo_links: list[str]) -> None:
+    if len(uploaded_files) + len(photo_links) > MAX_PHOTO_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"No more than {MAX_PHOTO_COUNT} photos are allowed",
+        )
+
+
 @router.get("", response_model=list[ProductRead])
 def list_products(
     search: str | None = None,
     category: str | None = None,
-    requiresCooking: bool | None = Query(default=None),
+    cookingState: str | None = Query(default=None),
     flags: list[str] = Query(default=[]),
     sortBy: str = Query(default="name"),
     sortOrder: str = Query(default="asc"),
@@ -110,7 +126,7 @@ def list_products(
     params = SearchParams(
         search=search,
         category=category,
-        requires_cooking=requiresCooking,
+        cooking_state=cookingState,
         flags=flags,
         sort_by=sortBy,
         sort_order=sortOrder,
@@ -129,8 +145,8 @@ def list_products(
         )
     if params.category:
         stmt = stmt.where(func.unicode_lower(Product.category).like(f"%{params.category.casefold()}%"))
-    if params.requires_cooking is not None:
-        stmt = stmt.where(Product.requires_cooking.is_(params.requires_cooking))
+    if params.cooking_state is not None:
+        stmt = stmt.where(Product.cooking_state == params.cooking_state)
     for flag in params.flags:
         stmt = stmt.where(getattr(Product, f"is_{flag}").is_(True))
 
@@ -146,27 +162,29 @@ def create_product(
     photos: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
 ):
-    saved_photo_paths = save_uploads(photos)
-    if not saved_photo_paths:
-        legacy_photo = save_upload(photo)
-        if legacy_photo:
-            saved_photo_paths = [legacy_photo]
+    uploaded_files = validate_image_uploads(photos)
+    if not uploaded_files and photo is not None and photo.filename:
+        uploaded_files = validate_image_uploads([photo])
+    photo_links = normalize_product_photo_links(payload.photo_links)
+    validate_product_photo_batch(uploaded_files, photo_links)
+    saved_photo_paths = save_uploads(uploaded_files)
+    all_photo_sources = [*saved_photo_paths, *photo_links]
 
     product = Product(
         name=payload.name,
-        photo_path=saved_photo_paths[0] if saved_photo_paths else None,
+        photo_path=all_photo_sources[0] if all_photo_sources else None,
         calories=payload.calories,
         protein=payload.protein,
         fat=payload.fat,
         carbs=payload.carbs,
-        composition=payload.composition,
+        composition=payload.composition or "",
         category=payload.category,
-        requires_cooking=payload.requires_cooking,
+        cooking_state=payload.cooking_state,
         is_vegan=payload.is_vegan,
         is_gluten_free=payload.is_gluten_free,
         is_sugar_free=payload.is_sugar_free,
     )
-    for index, file_path in enumerate(saved_photo_paths):
+    for index, file_path in enumerate(all_photo_sources):
         product.photos.append(ProductPhoto(file_path=file_path, position=index))
     db.add(product)
     db.commit()
@@ -189,7 +207,7 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
         raise HTTPException(status_code=404, detail="Product not found")
 
     content_type = request.headers.get("content-type", "")
-    new_photo_paths: list[str] = []
+    uploaded_files: list[UploadFile] = []
     if content_type.startswith("application/json"):
         try:
             raw_payload = await request.json()
@@ -199,21 +217,29 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
     else:
         form_data = await request.form()
         request_payload = product_update_from_form_data(form_data) or ProductUpdate()
-        uploaded_photos = uploaded_files_from_form(form_data, "photos")
-        if not uploaded_photos:
-            uploaded_photos = uploaded_files_from_form(form_data, "photo")
-        new_photo_paths = save_uploads(uploaded_photos)
+        uploaded_files = validate_image_uploads(uploaded_files_from_form(form_data, "photos"))
+        if not uploaded_files:
+            uploaded_files = validate_image_uploads(uploaded_files_from_form(form_data, "photo"))
 
-    update_data = request_payload.dict(exclude_unset=True, exclude_none=True)
+    photo_links_provided = "photo_links" in request_payload.__fields_set__
+    photo_links = normalize_product_photo_links(request_payload.photo_links if photo_links_provided else None)
+    validate_product_photo_batch(uploaded_files, photo_links)
+    new_photo_paths = save_uploads(uploaded_files)
+
+    update_data = request_payload.dict(exclude_unset=True, exclude={"photo_links"})
     if update_data:
         for field, value in update_data.items():
-            setattr(product, field, value)
-    if new_photo_paths:
-        product.photo_path = new_photo_paths[0]
+            if field == "composition":
+                setattr(product, field, value or "")
+            else:
+                setattr(product, field, value)
+    if photo_links_provided or new_photo_paths:
+        all_photo_sources = [*new_photo_paths, *photo_links]
+        product.photo_path = all_photo_sources[0] if all_photo_sources else None
         product.photos.clear()
-        for index, file_path in enumerate(new_photo_paths):
+        for index, file_path in enumerate(all_photo_sources):
             product.photos.append(ProductPhoto(file_path=file_path, position=index))
-    if update_data or new_photo_paths:
+    if update_data or photo_links_provided or new_photo_paths:
         db.commit()
         db.refresh(product)
     return serialize_product(product)

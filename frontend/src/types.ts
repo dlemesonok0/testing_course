@@ -5,9 +5,9 @@ export type Product = {
   protein: number;
   fat: number;
   carbs: number;
-  composition: string;
+  composition: string | null;
   category: string;
-  requires_cooking: boolean;
+  cooking_state: string;
   is_vegan: boolean;
   is_gluten_free: boolean;
   is_sugar_free: boolean;
@@ -26,9 +26,9 @@ export type DishIngredient = {
 export type Dish = {
   id: number;
   name: string;
-  description: string;
+  description: string | null;
   category: string;
-  servings: number;
+  portion_size_grams: number;
   calories: number;
   protein: number;
   fat: number;

@@ -18,6 +18,7 @@ async function parseJson<T>(response: Response): Promise<T> {
 
 export function assetUrl(path: string | null | undefined) {
   if (!path) return "";
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
   return `${API_BASE}${path}`;
 }
 

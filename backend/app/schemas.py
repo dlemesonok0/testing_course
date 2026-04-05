@@ -1,47 +1,143 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, validator
+from pydantic import AnyHttpUrl, BaseModel, Field, validator
 
 
 FLAG_NAMES = {"vegan", "gluten_free", "sugar_free"}
+MAX_PHOTO_COUNT = 5
 PRODUCT_SORT_FIELDS = {"name", "calories", "protein", "fat", "carbs", "created_at"}
 DISH_SORT_FIELDS = {"name", "calories", "protein", "fat", "carbs", "created_at"}
+PRODUCT_CATEGORIES = (
+    "Замороженный",
+    "Мясной",
+    "Овощи",
+    "Зелень",
+    "Специи",
+    "Крупы",
+    "Консервы",
+    "Жидкость",
+    "Сладости",
+)
+DISH_CATEGORIES = (
+    "Десерт",
+    "Первое",
+    "Второе",
+    "Напиток",
+    "Салат",
+    "Суп",
+    "Перекус",
+)
+COOKING_STATES = (
+    "Готовый к употреблению",
+    "Полуфабрикат",
+    "Требует приготовления",
+)
+
+
+def normalize_required_text(value: str, field_name: str) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) < 2:
+        raise ValueError(f"{field_name} must be at least 2 characters long")
+    return normalized
+
+
+def validate_choice(value: str, field_name: str, allowed: tuple[str, ...]) -> str:
+    normalized = " ".join(value.split())
+    if normalized not in allowed:
+        raise ValueError(f"{field_name} must be one of: {', '.join(allowed)}")
+    return normalized
 
 
 class ProductBase(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: str = Field(max_length=255)
     calories: float = Field(ge=0)
     protein: float = Field(ge=0)
     fat: float = Field(ge=0)
     carbs: float = Field(ge=0)
-    composition: str = Field(min_length=1)
-    category: str = Field(min_length=1, max_length=120)
-    requires_cooking: bool = False
+    composition: str | None = None
+    category: str = Field(max_length=120)
+    cooking_state: str = Field(max_length=64)
     is_vegan: bool = False
     is_gluten_free: bool = False
     is_sugar_free: bool = False
 
+    @validator("name")
+    def validate_name(cls, value: str) -> str:
+        return normalize_required_text(value, "name")
+
+    @validator("composition", pre=True)
+    def normalize_composition(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @validator("category")
+    def validate_category(cls, value: str) -> str:
+        return validate_choice(value, "category", PRODUCT_CATEGORIES)
+
+    @validator("cooking_state")
+    def validate_cooking_state(cls, value: str) -> str:
+        return validate_choice(value, "cooking_state", COOKING_STATES)
+
 
 class ProductCreate(ProductBase):
-    pass
+    photo_links: list[AnyHttpUrl] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
 
 
 class ProductUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: str | None = Field(default=None, max_length=255)
     calories: float | None = Field(default=None, ge=0)
     protein: float | None = Field(default=None, ge=0)
     fat: float | None = Field(default=None, ge=0)
     carbs: float | None = Field(default=None, ge=0)
-    composition: str | None = Field(default=None, min_length=1)
-    category: str | None = Field(default=None, min_length=1, max_length=120)
-    requires_cooking: bool | None = None
+    composition: str | None = None
+    category: str | None = Field(default=None, max_length=120)
+    cooking_state: str | None = Field(default=None, max_length=64)
     is_vegan: bool | None = None
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None
+    photo_links: list[AnyHttpUrl] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
+
+    @validator("name")
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_required_text(value, "name")
+
+    @validator("composition", pre=True)
+    def normalize_composition(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @validator("category")
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_choice(value, "category", PRODUCT_CATEGORIES)
+
+    @validator("cooking_state")
+    def validate_cooking_state(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_choice(value, "cooking_state", COOKING_STATES)
 
 
-class ProductRead(ProductBase):
+class ProductRead(BaseModel):
     id: int
+    name: str
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+    composition: str | None
+    category: str
+    cooking_state: str
+    is_vegan: bool
+    is_gluten_free: bool
+    is_sugar_free: bool
     photo_url: str | None
     photo_urls: list[str]
     created_at: datetime
@@ -52,15 +148,15 @@ class ProductRead(ProductBase):
 
 
 class DishIngredientInput(BaseModel):
-    product_id: int
+    product_id: int = Field(gt=0)
     quantity_grams: float = Field(gt=0)
 
 
 class DishBase(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    description: str = Field(min_length=1)
-    category: str = Field(min_length=1, max_length=120)
-    servings: int = Field(gt=0)
+    name: str = Field(max_length=255)
+    description: str | None = None
+    category: str = Field(max_length=120)
+    portion_size_grams: float = Field(gt=0)
     calories: float = Field(ge=0)
     protein: float = Field(ge=0)
     fat: float = Field(ge=0)
@@ -70,16 +166,31 @@ class DishBase(BaseModel):
     is_sugar_free: bool = False
     ingredients: list[DishIngredientInput] = Field(min_items=1)
 
+    @validator("name")
+    def validate_name(cls, value: str) -> str:
+        return normalize_required_text(value, "name")
+
+    @validator("description", pre=True)
+    def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @validator("category")
+    def validate_category(cls, value: str) -> str:
+        return validate_choice(value, "category", DISH_CATEGORIES)
+
 
 class DishCreate(DishBase):
     pass
 
 
 class DishUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    description: str | None = Field(default=None, min_length=1)
+    name: str | None = Field(default=None, max_length=255)
+    description: str | None = None
     category: str | None = Field(default=None, max_length=120)
-    servings: int | None = Field(default=None, gt=0)
+    portion_size_grams: float | None = Field(default=None, gt=0)
     calories: float | None = Field(default=None, ge=0)
     protein: float | None = Field(default=None, ge=0)
     fat: float | None = Field(default=None, ge=0)
@@ -89,12 +200,24 @@ class DishUpdate(BaseModel):
     is_sugar_free: bool | None = None
     ingredients: list[DishIngredientInput] | None = Field(default=None, min_items=1)
 
-    @validator("category")
-    def normalize_category(cls, value: str | None) -> str | None:
+    @validator("name")
+    def validate_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        normalized = value.strip()
+        return normalize_required_text(value, "name")
+
+    @validator("description", pre=True)
+    def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
         return normalized or None
+
+    @validator("category")
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_choice(value, "category", DISH_CATEGORIES)
 
 
 class DishIngredientRead(BaseModel):
@@ -114,9 +237,9 @@ class NutritionDraft(BaseModel):
 class DishRead(BaseModel):
     id: int
     name: str
-    description: str
+    description: str | None
     category: str
-    servings: int
+    portion_size_grams: float
     calories: float
     protein: float
     fat: float
@@ -135,7 +258,7 @@ class DishRead(BaseModel):
 class SearchParams(BaseModel):
     search: str | None = None
     category: str | None = None
-    requires_cooking: bool | None = None
+    cooking_state: str | None = None
     flags: list[str] = Field(default_factory=list)
     sort_by: str = "name"
     sort_order: str = "asc"
@@ -147,6 +270,12 @@ class SearchParams(BaseModel):
         if invalid:
             raise ValueError(f"Invalid flags: {', '.join(invalid)}")
         return normalized
+
+    @validator("cooking_state")
+    def validate_cooking_state(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_choice(value, "cooking_state", COOKING_STATES)
 
     @validator("sort_order")
     def validate_sort_order(cls, value: str) -> str:

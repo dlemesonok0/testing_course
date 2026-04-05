@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.models import Dish, DishIngredient, DishPhoto, Product
 from app.schemas import DISH_SORT_FIELDS, DishCreate, DishIngredientInput, DishRead, DishUpdate, NutritionDraft, SearchParams
-from app.services.files import save_upload, save_uploads
+from app.services.files import build_asset_url, save_uploads, validate_image_uploads
 from app.services.nutrition import calculate_draft
 
 router = APIRouter(prefix="/dishes", tags=["dishes"])
@@ -95,9 +95,9 @@ def validate_requested_flags(payload: DishCreate, allowed_flags: list[str]) -> N
 
 def dish_from_form(
     name: str = Form(...),
-    description: str = Form(...),
+    description: str | None = Form(default=None),
     category: str = Form(""),
-    servings: int = Form(...),
+    portion_size_grams: float = Form(...),
     calories: float = Form(...),
     protein: float = Form(...),
     fat: float = Form(...),
@@ -113,7 +113,7 @@ def dish_from_form(
             name=resolved_name,
             description=description,
             category=resolved_category or "",
-            servings=servings,
+            portion_size_grams=portion_size_grams,
             calories=calories,
             protein=protein,
             fat=fat,
@@ -143,7 +143,7 @@ def dish_update_from_form_data(form_data) -> DishUpdate | None:
         "name",
         "description",
         "category",
-        "servings",
+        "portion_size_grams",
         "calories",
         "protein",
         "fat",
@@ -178,18 +178,18 @@ def get_dish(db: Session, dish_id: int) -> Dish | None:
 
 
 def dish_payload(dish: Dish) -> DishRead:
-    photo_urls = [f"/uploads/{photo.file_path}" for photo in dish.photos]
+    photo_urls = [build_asset_url(photo.file_path) for photo in dish.photos]
     if not photo_urls and dish.photo_path:
-        photo_urls = [f"/uploads/{dish.photo_path}"]
+        photo_urls = [build_asset_url(dish.photo_path)]
     draft = calculate_draft(
         [(product_nutrition_snapshot(item.product), item.quantity_grams) for item in dish.ingredients]
     )
     return DishRead(
         id=dish.id,
         name=dish.name,
-        description=dish.description,
+        description=dish.description or None,
         category=dish.category,
-        servings=dish.servings,
+        portion_size_grams=dish.portion_size_grams,
         calories=dish.calories,
         protein=dish.protein,
         fat=dish.fat,
@@ -269,18 +269,17 @@ def create_dish(
         [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients]
     )
     validate_requested_flags(payload, draft["allowed_flags"])
-    saved_photo_paths = save_uploads(photos)
-    if not saved_photo_paths:
-        legacy_photo = save_upload(photo)
-        if legacy_photo:
-            saved_photo_paths = [legacy_photo]
+    uploaded_files = validate_image_uploads(photos)
+    if not uploaded_files and photo is not None and photo.filename:
+        uploaded_files = validate_image_uploads([photo])
+    saved_photo_paths = save_uploads(uploaded_files)
 
     dish = Dish(
         name=payload.name,
         photo_path=saved_photo_paths[0] if saved_photo_paths else None,
-        description=payload.description,
+        description=payload.description or "",
         category=payload.category,
-        servings=payload.servings,
+        portion_size_grams=payload.portion_size_grams,
         calories=payload.calories,
         protein=payload.protein,
         fat=payload.fat,
@@ -320,7 +319,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="Dish not found")
 
     content_type = request.headers.get("content-type", "")
-    new_photo_paths: list[str] = []
+    uploaded_files: list[UploadFile] = []
     if content_type.startswith("application/json"):
         try:
             raw_payload = await request.json()
@@ -330,12 +329,13 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
     else:
         form_data = await request.form()
         request_payload = dish_update_from_form_data(form_data) or DishUpdate()
-        uploaded_photos = uploaded_files_from_form(form_data, "photos")
-        if not uploaded_photos:
-            uploaded_photos = uploaded_files_from_form(form_data, "photo")
-        new_photo_paths = save_uploads(uploaded_photos)
+        uploaded_files = validate_image_uploads(uploaded_files_from_form(form_data, "photos"))
+        if not uploaded_files:
+            uploaded_files = validate_image_uploads(uploaded_files_from_form(form_data, "photo"))
 
-    update_data = request_payload.dict(exclude_unset=True, exclude_none=True, exclude={"ingredients"})
+    new_photo_paths = save_uploads(uploaded_files)
+
+    update_data = request_payload.dict(exclude_unset=True, exclude={"ingredients"})
     if "name" in update_data:
         resolved_name, resolved_category = resolve_dish_name_and_category(
             update_data["name"],
@@ -361,7 +361,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         "name": update_data.get("name", dish.name),
         "description": update_data.get("description", dish.description),
         "category": update_data.get("category", dish.category),
-        "servings": update_data.get("servings", dish.servings),
+        "portion_size_grams": update_data.get("portion_size_grams", dish.portion_size_grams),
         "calories": update_data.get("calories", dish.calories),
         "protein": update_data.get("protein", dish.protein),
         "fat": update_data.get("fat", dish.fat),
@@ -375,7 +375,10 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
 
     if update_data:
         for field, value in update_data.items():
-            setattr(dish, field, value)
+            if field == "description":
+                setattr(dish, field, value or "")
+            else:
+                setattr(dish, field, value)
     if ingredients_payload is not None:
         dish.ingredients.clear()
         for item in ingredients_payload:
