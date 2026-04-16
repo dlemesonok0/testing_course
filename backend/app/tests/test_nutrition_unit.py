@@ -11,8 +11,6 @@ from app.services.nutrition import calculate_draft
 
 @pytest.fixture
 def product_snapshot_factory():
-    """Build product snapshots in the format consumed by calculate_draft."""
-
     def build_snapshot(**overrides):
         snapshot = {
             "calories": 100.0,
