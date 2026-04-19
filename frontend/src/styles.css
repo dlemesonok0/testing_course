@@ -32,6 +32,11 @@ button, input, select, textarea { font: inherit; }
 .actions a, .actions button, .primary, .ingredients-header button, .ingredient-row button { border: 0; border-radius: 12px; padding: 10px 14px; cursor: pointer; background: #df8a42; color: #fff; }
 .actions a:nth-child(2), .ingredients-header button { background: #2b6b62; }
 .actions button, .ingredient-row button { background: #ab4a36; }
+.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: saturate(0.35);
+}
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .field, .ingredients { display: grid; gap: 8px; }
 .field input, .field textarea, .filters input, .ingredient-row select, .ingredient-row input { width: 100%; border: 1px solid rgba(29, 42, 47, 0.15); border-radius: 12px; padding: 12px 14px; background: rgba(255, 255, 255, 0.95); }
@@ -46,6 +51,7 @@ button, input, select, textarea { font: inherit; }
 .photo-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .photo-chip { padding: 6px 10px; border-radius: 999px; background: rgba(43, 107, 98, 0.12); color: #2b6b62; }
 .nutrition { color: #2b6b62; font-weight: 600; }
+.audit-meta { display: grid; gap: 4px; color: rgba(29, 42, 47, 0.72); font-size: 0.95rem; }
 .error { color: #ab2d2d; font-weight: 600; }
 .accent { margin-top: 18px; border-color: rgba(223, 138, 66, 0.25); background: rgba(255, 245, 233, 0.92); }
 

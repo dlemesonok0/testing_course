@@ -30,15 +30,6 @@ DISH_CATEGORY_MACRO_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
-def validate_bju_sum(protein: float, fat: float, carbs: float) -> None:
-    if protein + fat + carbs > 100:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="protein + fat + carbs must be less than or equal to 100",
-        )
-
-
 def normalize_whitespace(value: str) -> str:
     return " ".join(value.split())
 
@@ -106,10 +97,10 @@ def dish_from_form(
     description: str | None = Form(default=None),
     category: str = Form(""),
     portion_size_grams: float = Form(...),
-    calories: float = Form(...),
-    protein: float = Form(...),
-    fat: float = Form(...),
-    carbs: float = Form(...),
+    calories: float = Form(0),
+    protein: float = Form(0),
+    fat: float = Form(0),
+    carbs: float = Form(0),
     is_vegan: bool = Form(False),
     is_gluten_free: bool = Form(False),
     is_sugar_free: bool = Form(False),
@@ -222,11 +213,16 @@ def dish_payload(dish: Dish) -> DishRead:
 
 
 @router.get("/nutrition-draft", response_model=NutritionDraft)
-def nutrition_draft(ingredients: str = Query(...), db: Session = Depends(get_db)):
+def nutrition_draft(
+    ingredients: str = Query(...),
+    portion_size_grams: float | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+):
     parsed = parse_ingredients(ingredients)
     product_map = load_products_map(db, parsed)
     return calculate_draft(
-        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in parsed]
+        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in parsed],
+        portion_size_grams,
     )
 
 
@@ -272,10 +268,10 @@ def create_dish(
     photos: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
 ):
-    validate_bju_sum(payload.protein, payload.fat, payload.carbs)
     product_map = load_products_map(db, payload.ingredients)
     draft = calculate_draft(
-        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients]
+        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients],
+        payload.portion_size_grams,
     )
     validate_requested_flags(payload, draft["allowed_flags"])
     uploaded_files = validate_image_uploads(photos)
@@ -361,16 +357,18 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
     effective_ingredients = ingredients_payload or [
         DishIngredientInput(product_id=item.product_id, quantity_grams=item.quantity_grams) for item in dish.ingredients
     ]
+    effective_portion_size = float(update_data.get("portion_size_grams", dish.portion_size_grams))
     product_map = load_products_map(db, effective_ingredients)
     draft = calculate_draft(
-        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in effective_ingredients]
+        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in effective_ingredients],
+        effective_portion_size,
     )
 
     merged = {
         "name": update_data.get("name", dish.name),
         "description": update_data.get("description", dish.description),
         "category": update_data.get("category", dish.category),
-        "portion_size_grams": update_data.get("portion_size_grams", dish.portion_size_grams),
+        "portion_size_grams": effective_portion_size,
         "calories": update_data.get("calories", dish.calories),
         "protein": update_data.get("protein", dish.protein),
         "fat": update_data.get("fat", dish.fat),
@@ -380,7 +378,6 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         "is_sugar_free": update_data.get("is_sugar_free", dish.is_sugar_free),
         "ingredients": effective_ingredients,
     }
-    validate_bju_sum(float(merged["protein"]), float(merged["fat"]), float(merged["carbs"]))
     validate_requested_flags(DishCreate.parse_obj(merged), draft["allowed_flags"])
 
     if update_data:

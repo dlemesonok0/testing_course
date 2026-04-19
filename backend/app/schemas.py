@@ -167,9 +167,9 @@ class DishBase(BaseModel):
     category: str = Field(max_length=120)
     portion_size_grams: float = Field(gt=0)
     calories: float = Field(ge=0)
-    protein: float = Field(ge=0, le=100)
-    fat: float = Field(ge=0, le=100)
-    carbs: float = Field(ge=0, le=100)
+    protein: float = Field(ge=0)
+    fat: float = Field(ge=0)
+    carbs: float = Field(ge=0)
     is_vegan: bool = False
     is_gluten_free: bool = False
     is_sugar_free: bool = False
@@ -190,16 +190,6 @@ class DishBase(BaseModel):
     def validate_category(cls, value: str) -> str:
         return validate_choice(value, "category", DISH_CATEGORIES)
 
-    @root_validator
-    def validate_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
-        protein = float(values.get("protein", 0))
-        fat = float(values.get("fat", 0))
-        carbs = float(values.get("carbs", 0))
-        if protein + fat + carbs > 100:
-            raise ValueError("protein + fat + carbs must be less than or equal to 100")
-        return values
-
-
 class DishCreate(DishBase):
     pass
 
@@ -210,9 +200,9 @@ class DishUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=120)
     portion_size_grams: float | None = Field(default=None, gt=0)
     calories: float | None = Field(default=None, ge=0)
-    protein: float | None = Field(default=None, ge=0, le=100)
-    fat: float | None = Field(default=None, ge=0, le=100)
-    carbs: float | None = Field(default=None, ge=0, le=100)
+    protein: float | None = Field(default=None, ge=0)
+    fat: float | None = Field(default=None, ge=0)
+    carbs: float | None = Field(default=None, ge=0)
     is_vegan: bool | None = None
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None

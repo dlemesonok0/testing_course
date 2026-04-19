@@ -113,7 +113,13 @@ export async function deleteDish(id: number) {
   return parseJson(response);
 }
 
-export async function getNutritionDraft(ingredients: Array<{ product_id: number; quantity_grams: number }>) {
+export async function getNutritionDraft(
+  ingredients: Array<{ product_id: number; quantity_grams: number }>,
+  portionSizeGrams?: number,
+) {
   const params = new URLSearchParams({ ingredients: JSON.stringify(ingredients) });
+  if (portionSizeGrams !== undefined) {
+    params.set("portion_size_grams", String(portionSizeGrams));
+  }
   return parseJson<NutritionDraft>(await request(`${API_BASE}/dishes/nutrition-draft?${params.toString()}`));
 }
