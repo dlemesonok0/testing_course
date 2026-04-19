@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from pydantic import ValidationError
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -9,6 +9,8 @@ from app.schemas import MAX_PHOTO_COUNT, PRODUCT_SORT_FIELDS, ProductCreate, Pro
 from app.services.files import build_asset_url, save_uploads, validate_image_uploads
 
 router = APIRouter(prefix="/products", tags=["products"])
+
+DIET_FLAG_FIELDS = ("is_vegan", "is_gluten_free", "is_sugar_free")
 
 
 def validate_bju_sum(protein: float, fat: float, carbs: float) -> None:
@@ -42,6 +44,24 @@ def serialize_product(product: Product) -> ProductRead:
         created_at=product.created_at,
         updated_at=product.updated_at,
     )
+
+
+def clear_invalid_flags_for_linked_dishes(db: Session, product_id: int) -> None:
+    linked_dishes = (
+        db.scalars(
+            select(Dish)
+            .options(selectinload(Dish.ingredients).selectinload(DishIngredient.product))
+            .join(Dish.ingredients)
+            .where(DishIngredient.product_id == product_id)
+        )
+        .unique()
+        .all()
+    )
+
+    for dish in linked_dishes:
+        for flag_field in DIET_FLAG_FIELDS:
+            if getattr(dish, flag_field) and not all(getattr(item.product, flag_field) for item in dish.ingredients):
+                setattr(dish, flag_field, False)
 
 
 def product_from_form(
@@ -148,12 +168,7 @@ def list_products(
     stmt = select(Product).options(selectinload(Product.photos))
     if params.search:
         search_pattern = f"%{params.search.casefold()}%"
-        stmt = stmt.where(
-            or_(
-                func.unicode_lower(Product.name).like(search_pattern),
-                func.unicode_lower(Product.category).like(search_pattern),
-            )
-        )
+        stmt = stmt.where(func.unicode_lower(Product.name).like(search_pattern))
     if params.category:
         stmt = stmt.where(func.unicode_lower(Product.category).like(f"%{params.category.casefold()}%"))
     if params.cooking_state is not None:
@@ -239,6 +254,7 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
     new_photo_paths = save_uploads(uploaded_files)
 
     update_data = request_payload.dict(exclude_unset=True, exclude={"photo_links"})
+    diet_flags_updated = any(field in update_data for field in DIET_FLAG_FIELDS)
     if update_data:
         merged_protein = float(update_data.get("protein", product.protein))
         merged_fat = float(update_data.get("fat", product.fat))
@@ -255,6 +271,8 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
         product.photos.clear()
         for index, file_path in enumerate(all_photo_sources):
             product.photos.append(ProductPhoto(file_path=file_path, position=index))
+    if diet_flags_updated:
+        clear_invalid_flags_for_linked_dishes(db, product.id)
     if update_data or photo_links_provided or new_photo_paths:
         db.commit()
         db.refresh(product)

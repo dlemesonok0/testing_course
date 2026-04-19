@@ -50,15 +50,36 @@ function formatNutrition(calories: number | string, protein: number | string, fa
   return `${calories} ${caloriesLabel} · Б ${protein} · Ж ${fat} · У ${carbs}`;
 }
 
+const TIMEZONE_SUFFIX_PATTERN = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+function getPreferredLocale() {
+  if (typeof navigator === "undefined") return "ru-RU";
+  return navigator.languages?.[0] ?? navigator.language ?? "ru-RU";
+}
+
+function parseTimestamp(value: string) {
+  const trimmed = value.trim();
+  const timestamp = TIMEZONE_SUFFIX_PATTERN.test(trimmed) ? trimmed : `${trimmed}Z`;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? new Date(value) : parsed;
+}
+
 function formatTimestamp(value: string) {
-  const parsed = new Date(value);
+  const parsed = parseTimestamp(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(parsed);
+  return new Intl.DateTimeFormat(getPreferredLocale(), {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(parsed);
 }
 
 function isSameTimestamp(left: string, right: string) {
-  const leftDate = new Date(left);
-  const rightDate = new Date(right);
+  const leftDate = parseTimestamp(left);
+  const rightDate = parseTimestamp(right);
   if (!Number.isNaN(leftDate.getTime()) && !Number.isNaN(rightDate.getTime())) {
     return leftDate.getTime() === rightDate.getTime();
   }
@@ -108,6 +129,73 @@ const flags = [
   ["is_gluten_free", "Без глютена", "gluten_free"],
   ["is_sugar_free", "Без сахара", "sugar_free"],
 ] as const;
+
+type FlagKey = (typeof flags)[number][0];
+type FlagSource = { [key in FlagKey]: boolean };
+
+function getActiveFlagLabels(source: FlagSource) {
+  return flags.filter(([key]) => source[key]).map(([, label]) => label);
+}
+
+function FlagBadges({ labels, emptyLabel }: { labels: readonly string[]; emptyLabel?: string }) {
+  if (!labels.length && !emptyLabel) return null;
+
+  return (
+    <div className="flag-badges">
+      {labels.length > 0 ? (
+        labels.map((label) => <span className="flag-badge" key={label}>{label}</span>)
+      ) : (
+        <span className="flag-badge flag-badge-muted">{emptyLabel}</span>
+      )}
+    </div>
+  );
+}
+
+function photoFileKey(photo: File, index: number) {
+  return `${photo.name}-${photo.size}-${photo.lastModified}-${index}`;
+}
+
+function SelectedPhotoList({ photos, onRemove }: { photos: File[]; onRemove: (index: number) => void }) {
+  if (!photos.length) return null;
+
+  return (
+    <div className="photo-list">
+      {photos.map((photo, index) => (
+        <span className="photo-chip" key={photoFileKey(photo, index)}>
+          <span>{photo.name}</span>
+          <button className="photo-chip-remove" type="button" aria-label={`Remove ${photo.name}`} onClick={() => onRemove(index)}>
+            x
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PhotoUploadField({ photos, onChange }: { photos: File[]; onChange: (photos: File[]) => void }) {
+  return (
+    <div className="field photo-upload">
+      <span>Фотографии</span>
+      <label className="file-picker">
+        <input
+          className="file-input"
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => {
+            onChange(Array.from(e.currentTarget.files ?? []));
+            e.currentTarget.value = "";
+          }}
+        />
+        <span>Выбрать фото</span>
+      </label>
+      <SelectedPhotoList
+        photos={photos}
+        onRemove={(index) => onChange(photos.filter((_, photoIndex) => photoIndex !== index))}
+      />
+    </div>
+  );
+}
 
 export default function App() {
   return (
@@ -218,6 +306,7 @@ function ProductList() {
           description: product.composition ?? "Состав не указан",
           image: product.photo_url,
           meta: formatNutrition(product.calories, product.protein, product.fat, product.carbs, PRODUCT_CALORIES_LABEL),
+          flags: getActiveFlagLabels(product),
           createdAt: product.created_at,
           updatedAt: product.updated_at,
           href: `/products/${product.id}`,
@@ -308,6 +397,7 @@ function DishList() {
           subtitle: formatDishSubtitle(dish.category, dish.portion_size_grams),
           image: dish.photo_url,
           meta: formatNutrition(dish.calories, dish.protein, dish.fat, dish.carbs, DISH_CALORIES_LABEL),
+          flags: getActiveFlagLabels(dish),
           createdAt: dish.created_at,
           updatedAt: dish.updated_at,
           href: `/dishes/${dish.id}`,
@@ -326,7 +416,7 @@ function DishList() {
   );
 }
 
-function Cards({ items }: { items: Array<{ id: number; title: string; subtitle: string; description?: string; image: string | null; meta: string; createdAt: string; updatedAt: string; href: string; editHref: string; onDelete: () => void }> }) {
+function Cards({ items }: { items: Array<{ id: number; title: string; subtitle: string; description?: string; image: string | null; meta: string; flags: string[]; createdAt: string; updatedAt: string; href: string; editHref: string; onDelete: () => void }> }) {
   return (
     <div className="grid">
       {items.map((item) => (
@@ -338,6 +428,7 @@ function Cards({ items }: { items: Array<{ id: number; title: string; subtitle: 
               <span>{item.subtitle}</span>
             </div>
             {item.description && <p>{item.description}</p>}
+            <FlagBadges labels={item.flags} />
             <p className="nutrition">{item.meta}</p>
             <AuditMeta createdAt={item.createdAt} updatedAt={item.updatedAt} />
             <div className="actions">
@@ -394,6 +485,7 @@ function ProductCard() {
         </div>
       )}
       <p>{item.composition ?? "Состав не указан"}</p>
+      <FlagBadges labels={getActiveFlagLabels(item)} emptyLabel="Флаги не выбраны" />
       <p className="nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, PRODUCT_CALORIES_LABEL)}</p>
       <AuditMeta createdAt={item.created_at} updatedAt={item.updated_at} />
     </section>
@@ -431,6 +523,7 @@ function DishCard() {
         </div>
       )}
       <p className="nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, DISH_CALORIES_LABEL)}</p>
+      <FlagBadges labels={getActiveFlagLabels(item)} emptyLabel="Флаги не выбраны" />
       <AuditMeta createdAt={item.created_at} updatedAt={item.updated_at} />
       <div className="panel">
         <h3>Состав блюда</h3>
@@ -541,27 +634,7 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
             {label}
           </label>
         ))}
-        <div className="field photo-upload">
-          <span>Фотографии</span>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => {
-              const selectedFiles = Array.from(e.target.files ?? []);
-              setForm((prev) => ({ ...prev, photos: selectedFiles }));
-            }}
-          />
-          {form.photos.length > 0 && (
-            <div className="photo-list">
-              {form.photos.map((photo) => (
-                <span className="photo-chip" key={`${photo.name}-${photo.size}`}>
-                  {photo.name}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        <PhotoUploadField photos={form.photos} onChange={(photos) => setForm((prev) => ({ ...prev, photos }))} />
       </div>
       {existingPhotoUrls.length > 0 && (
         <div className="panel">
@@ -586,6 +659,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
   const [draft, setDraft] = useState<NutritionDraft | null>(null);
   const [error, setError] = useState("");
   const manualNutritionEditedRef = useRef(false);
+  const skipNextDraftNutritionApplyRef = useRef(false);
 
   useEffect(() => {
     void getProducts().then(setProducts);
@@ -595,6 +669,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
     if (!edit || !id) return;
     void getDish(Number(id)).then((item) => {
       setExistingPhotoUrls(item.photo_urls);
+      skipNextDraftNutritionApplyRef.current = true;
       setForm({
         name: item.name,
         description: "",
@@ -629,10 +704,12 @@ function DishForm({ edit = false }: { edit?: boolean }) {
     manualNutritionEditedRef.current = false;
     void getNutritionDraft(payload, portionSizeGrams)
       .then((value) => {
+        const skipNutritionApply = skipNextDraftNutritionApplyRef.current;
+        skipNextDraftNutritionApplyRef.current = false;
         setDraft(value);
         setForm((prev) => ({
           ...prev,
-          ...(manualNutritionEditedRef.current
+          ...(skipNutritionApply || manualNutritionEditedRef.current
             ? {}
             : {
                 calories: String(value.calories),
@@ -645,7 +722,10 @@ function DishForm({ edit = false }: { edit?: boolean }) {
           is_sugar_free: value.allowed_flags.includes("sugar_free") ? prev.is_sugar_free : false,
         }));
       })
-      .catch(() => setDraft(null));
+      .catch(() => {
+        skipNextDraftNutritionApplyRef.current = false;
+        setDraft(null);
+      });
   }, [form.ingredients.map((item) => `${item.product_id}:${item.quantity_grams}`).join("|"), form.portion_size_grams]);
 
   const updateNutritionField = (field: "calories" | "protein" | "fat" | "carbs", value: string) => {
@@ -717,27 +797,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
             {label}
           </label>
         ))}
-        <div className="field photo-upload">
-            <span>Фотографии</span>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => {
-                const selectedFiles = Array.from(e.target.files ?? []);
-                setForm((prev) => ({ ...prev, photos: selectedFiles }));
-              }}
-            />
-            {form.photos.length > 0 && (
-              <div className="photo-list">
-                {form.photos.map((photo) => (
-                  <span className="photo-chip" key={`${photo.name}-${photo.size}`}>
-                    {photo.name}
-                  </span>
-                ))}
-              </div>
-            )}
-        </div>
+        <PhotoUploadField photos={form.photos} onChange={(photos) => setForm((prev) => ({ ...prev, photos }))} />
       </div>
       {existingPhotoUrls.length > 0 && (
         <div className="panel">

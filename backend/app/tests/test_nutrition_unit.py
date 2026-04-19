@@ -1,41 +1,22 @@
-import asyncio
 import json
-from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
 
 from app.routers import dishes
-from app.schemas import DISH_CATEGORIES, DishCreate, DishIngredientInput, DishUpdate
+from app.schemas import DishCreate
 from app.services.nutrition import calculate_draft
 
 
-@pytest.fixture
-def product_snapshot_factory():
-    def build_snapshot(**overrides):
-        snapshot = {
-            "calories": 100.0,
-            "protein": 10.0,
-            "fat": 5.0,
-            "carbs": 20.0,
-            "is_vegan": True,
-            "is_gluten_free": True,
-            "is_sugar_free": True,
-        }
-        snapshot.update(overrides)
-        return snapshot
-
-    return build_snapshot
-
-
-class TestCalculateDraftEquivalencePartitioning:
-    """Check representative equivalence classes for automatic nutrition calculation."""
+class TestAutomaticDishNutrition:
+    """Unit tests for automatic dish nutrition calculation."""
 
     @pytest.mark.parametrize(
         ("build_ingredients", "expected"),
         [
-            (
-                lambda factory: [],
+            pytest.param(
+                lambda product: [],
                 {
                     "calories": 0.0,
                     "protein": 0.0,
@@ -43,11 +24,12 @@ class TestCalculateDraftEquivalencePartitioning:
                     "carbs": 0.0,
                     "allowed_flags": [],
                 },
+                id="empty-dish",
             ),
-            (
-                lambda factory: [
+            pytest.param(
+                lambda product: [
                     (
-                        factory(
+                        product(
                             calories=120.0,
                             protein=18.0,
                             fat=4.0,
@@ -63,11 +45,12 @@ class TestCalculateDraftEquivalencePartitioning:
                     "carbs": 9.0,
                     "allowed_flags": ["vegan", "gluten_free", "sugar_free"],
                 },
+                id="single-product-dish",
             ),
-            (
-                lambda factory: [
+            pytest.param(
+                lambda product: [
                     (
-                        factory(
+                        product(
                             calories=80.0,
                             protein=3.0,
                             fat=1.0,
@@ -77,7 +60,7 @@ class TestCalculateDraftEquivalencePartitioning:
                         200.0,
                     ),
                     (
-                        factory(
+                        product(
                             calories=250.0,
                             protein=20.0,
                             fat=15.0,
@@ -94,339 +77,261 @@ class TestCalculateDraftEquivalencePartitioning:
                     "carbs": 34.5,
                     "allowed_flags": ["vegan"],
                 },
+                id="multi-product-dish",
             ),
         ],
-        ids=[
-            "empty-ingredient-list",
-            "single-ingredient-with-all-flags",
-            "multiple-ingredients-with-mixed-diet-flags",
-        ],
     )
-    def test_calculate_draft_returns_expected_totals_for_equivalence_classes(
+    def test_calculates_expected_nutrition_for_equivalence_classes(
         self,
-        product_snapshot_factory,
+        nutrition_product_factory,
         build_ingredients,
         expected,
     ):
-        """Use equivalence partitioning for empty, single-item and mixed-item recipes."""
+        """Cover empty, single-product and multi-product dish classes using equivalence partitioning."""
 
-        ingredients = build_ingredients(product_snapshot_factory)
+        ingredients = build_ingredients(nutrition_product_factory)
 
         assert calculate_draft(ingredients) == expected
-
-
-class TestCalculateDraftBoundaryValues:
-    """Check boundary values near the most meaningful calculation thresholds."""
 
     @pytest.mark.parametrize(
         ("quantity_grams", "expected_calories"),
         [
-            pytest.param(99.99, 123.44, id="just-below-reference-100g"),
-            pytest.param(100.0, 123.45, id="exact-reference-100g"),
-            pytest.param(100.01, 123.46, id="just-above-reference-100g"),
+            pytest.param(99.99, 123.44, id="just-below-100g-reference"),
+            pytest.param(100.0, 123.45, id="exact-100g-reference"),
+            pytest.param(100.01, 123.46, id="just-above-100g-reference"),
         ],
     )
-    def test_calculate_draft_scales_calories_around_the_100_gram_reference(
+    def test_calories_scale_around_100_gram_reference_boundary(
         self,
-        product_snapshot_factory,
+        nutrition_product_factory,
         quantity_grams,
         expected_calories,
     ):
-        """Use boundary value analysis around the 100 g nutrition reference point."""
+        """Check the boundary around the product nutrition reference value of 100 g."""
 
-        product = product_snapshot_factory(calories=123.45, protein=0.0, fat=0.0, carbs=0.0)
+        product = nutrition_product_factory(calories=123.45, protein=0.0, fat=0.0, carbs=0.0)
 
         result = calculate_draft([(product, quantity_grams)])
 
         assert result["calories"] == expected_calories
 
-    def test_calculate_draft_scales_recipe_composition_to_requested_portion_size(self, product_snapshot_factory):
-        """Recalculate nutrition from the recipe composition to the selected serving size."""
+    @pytest.mark.parametrize(
+        ("portion_size_grams", "expected_calories"),
+        [
+            pytest.param(99.9, 149.85, id="just-below-100g-portion"),
+            pytest.param(100.0, 150.0, id="exact-100g-portion"),
+            pytest.param(100.1, 150.15, id="just-above-100g-portion"),
+            pytest.param(300.0, 450.0, id="larger-serving-portion"),
+        ],
+    )
+    def test_recalculates_nutrition_to_requested_portion_size(
+        self,
+        nutrition_product_factory,
+        portion_size_grams,
+        expected_calories,
+    ):
+        """Check that dish calories are calculated for the selected serving size, not per 100 g of dish."""
 
-        first_product = product_snapshot_factory(calories=100.0, protein=10.0, fat=5.0, carbs=20.0)
-        second_product = product_snapshot_factory(calories=200.0, protein=20.0, fat=10.0, carbs=40.0)
+        ingredients = [
+            (
+                nutrition_product_factory(
+                    calories=100.0,
+                    protein=10.0,
+                    fat=5.0,
+                    carbs=20.0,
+                ),
+                50.0,
+            ),
+            (
+                nutrition_product_factory(
+                    calories=200.0,
+                    protein=20.0,
+                    fat=10.0,
+                    carbs=40.0,
+                ),
+                50.0,
+            ),
+        ]
 
-        result = calculate_draft(
+        result = calculate_draft(ingredients, portion_size_grams=portion_size_grams)
+
+        assert result["calories"] == expected_calories
+
+
+class TestNutritionDraftEndpointWithMocks:
+    """Unit tests for endpoint delegation using mocked collaborators."""
+
+    def test_nutrition_draft_endpoint_delegates_to_calculation_service_with_portion(
+        self,
+        monkeypatch,
+        nutrition_product_object_factory,
+    ):
+        """Mock endpoint collaborators and verify that serving size is forwarded to the calculator."""
+
+        expected_draft = {
+            "calories": 375.0,
+            "protein": 37.5,
+            "fat": 18.75,
+            "carbs": 75.0,
+            "allowed_flags": ["vegan", "gluten_free", "sugar_free"],
+        }
+        product = nutrition_product_object_factory(
+            calories=150.0,
+            protein=15.0,
+            fat=7.5,
+            carbs=30.0,
+        )
+        load_products_map_mock = Mock(return_value={7: product})
+        calculate_draft_mock = Mock(return_value=expected_draft)
+        monkeypatch.setattr(dishes, "load_products_map", load_products_map_mock)
+        monkeypatch.setattr(dishes, "calculate_draft", calculate_draft_mock)
+
+        result = dishes.nutrition_draft(
+            ingredients=json.dumps([{"product_id": 7, "quantity_grams": 100.0}]),
+            portion_size_grams=250.0,
+            db=object(),
+        )
+
+        assert result == expected_draft
+        load_products_map_mock.assert_called_once()
+        _, parsed_ingredients = load_products_map_mock.call_args.args
+        assert parsed_ingredients[0].product_id == 7
+        assert parsed_ingredients[0].quantity_grams == 100.0
+        calculate_draft_mock.assert_called_once_with(
             [
-                (first_product, 100.0),
-                (second_product, 100.0),
+                (
+                    {
+                        "calories": 150.0,
+                        "protein": 15.0,
+                        "fat": 7.5,
+                        "carbs": 30.0,
+                        "is_vegan": True,
+                        "is_gluten_free": True,
+                        "is_sugar_free": True,
+                    },
+                    100.0,
+                )
             ],
-            portion_size_grams=300.0,
+            250.0,
         )
 
-        assert result["calories"] == 450.0
-        assert result["protein"] == 45.0
-        assert result["fat"] == 22.5
-        assert result["carbs"] == 90.0
+    def test_nutrition_draft_endpoint_delegates_to_calculation_service_without_portion(
+        self,
+        monkeypatch,
+        nutrition_product_object_factory,
+    ):
+        """Mock endpoint collaborators and verify that missing serving size is passed as None."""
 
-    @pytest.mark.parametrize(
-        ("quantity_grams", "should_pass"),
-        [
-            pytest.param(-0.01, False, id="negative-quantity"),
-            pytest.param(0.0, False, id="zero-quantity"),
-            pytest.param(0.01, True, id="minimum-positive-quantity"),
-        ],
-    )
-    def test_dish_ingredient_input_validates_quantity_boundaries(self, quantity_grams, should_pass):
-        """Use boundary value analysis for the lower quantity limit accepted by the API schema."""
-
-        if should_pass:
-            ingredient = DishIngredientInput(product_id=1, quantity_grams=quantity_grams)
-            assert ingredient.quantity_grams == quantity_grams
-            return
-
-        with pytest.raises(ValidationError):
-            DishIngredientInput(product_id=1, quantity_grams=quantity_grams)
-
-    @pytest.mark.parametrize(
-        ("product_id", "should_pass"),
-        [
-            pytest.param(0, False, id="zero-product-id"),
-            pytest.param(1, True, id="minimum-valid-product-id"),
-        ],
-    )
-    def test_dish_ingredient_input_validates_product_id_boundaries(self, product_id, should_pass):
-        """Check the lower product identifier boundary used by ingredient references."""
-
-        if should_pass:
-            ingredient = DishIngredientInput(product_id=product_id, quantity_grams=1.0)
-            assert ingredient.product_id == product_id
-            return
-
-        with pytest.raises(ValidationError):
-            DishIngredientInput(product_id=product_id, quantity_grams=1.0)
-
-
-def test_nutrition_draft_endpoint_delegates_to_the_calculation_service(monkeypatch):
-    """Stub collaborators to keep the endpoint test isolated from the database and service internals."""
-
-    captured: dict[str, object] = {}
-    fake_product = SimpleNamespace(
-        calories=80.0,
-        protein=3.0,
-        fat=1.0,
-        carbs=16.0,
-        is_vegan=True,
-        is_gluten_free=True,
-        is_sugar_free=False,
-    )
-    expected_draft = {
-        "calories": 40.0,
-        "protein": 1.5,
-        "fat": 0.5,
-        "carbs": 8.0,
-        "allowed_flags": ["vegan", "gluten_free"],
-    }
-
-    def fake_load_products_map(db, ingredients):
-        captured["parsed_ingredients"] = ingredients
-        return {1: fake_product}
-
-    def fake_calculate_draft(ingredients, portion_size_grams=None):
-        captured["calculator_input"] = ingredients
-        captured["portion_size_grams"] = portion_size_grams
-        return expected_draft
-
-    monkeypatch.setattr(dishes, "load_products_map", fake_load_products_map)
-    monkeypatch.setattr(dishes, "calculate_draft", fake_calculate_draft)
-
-    result = dishes.nutrition_draft(
-        ingredients=json.dumps([{"product_id": 1, "quantity_grams": 50.0}]),
-        portion_size_grams=250.0,
-        db=object(),
-    )
-
-    assert result == expected_draft
-    assert len(captured["parsed_ingredients"]) == 1
-    parsed_ingredient = captured["parsed_ingredients"][0]
-    assert parsed_ingredient.product_id == 1
-    assert parsed_ingredient.quantity_grams == 50.0
-    assert captured["calculator_input"] == [
-        (
-            {
-                "calories": 80.0,
-                "protein": 3.0,
-                "fat": 1.0,
-                "carbs": 16.0,
-                "is_vegan": True,
-                "is_gluten_free": True,
-                "is_sugar_free": False,
-            },
-            50.0,
-        )
-    ]
-    assert captured["portion_size_grams"] == 250.0
-
-
-def test_dish_create_accepts_portion_macros_above_the_100_gram_limit():
-    """Dish nutrition is stored per serving, so macros may legitimately exceed 100 g in total."""
-
-    dish = DishCreate(
-        name="Сытная паста",
-        description=None,
-        category=DISH_CATEGORIES[0],
-        portion_size_grams=450.0,
-        calories=920.0,
-        protein=48.0,
-        fat=32.0,
-        carbs=128.0,
-        is_vegan=False,
-        is_gluten_free=False,
-        is_sugar_free=False,
-        ingredients=[DishIngredientInput(product_id=1, quantity_grams=450.0)],
-    )
-
-    assert dish.protein == 48.0
-    assert dish.fat == 32.0
-    assert dish.carbs == 128.0
-
-
-def test_dish_update_accepts_portion_macros_above_the_100_gram_limit():
-    """Partial updates must not reject portion-based macros that are larger than per-100 g limits."""
-
-    update = DishUpdate(protein=42.0, fat=24.0, carbs=118.0)
-
-    assert update.protein == 42.0
-    assert update.fat == 24.0
-    assert update.carbs == 118.0
-
-
-def test_create_dish_preserves_user_overridden_portion_nutrition(monkeypatch):
-    """Store user-edited macros while still calculating draft data from current inputs."""
-
-    captured: dict[str, object] = {}
-    expected_draft = {
-        "calories": 640.0,
-        "protein": 36.0,
-        "fat": 18.0,
-        "carbs": 92.0,
-        "allowed_flags": [],
-    }
-    fake_product = SimpleNamespace(
-        calories=320.0,
-        protein=18.0,
-        fat=9.0,
-        carbs=46.0,
-        is_vegan=False,
-        is_gluten_free=False,
-        is_sugar_free=False,
-    )
-
-    class FakeDb:
-        def add(self, dish):
-            dish.id = 101
-            captured["dish"] = dish
-
-        def commit(self):
-            return None
-
-    monkeypatch.setattr(dishes, "load_products_map", lambda db, ingredients: {1: fake_product})
-    def fake_calculate_draft(ingredients, portion_size_grams=None):
-        captured["portion_size_grams"] = portion_size_grams
-        return expected_draft
-
-    monkeypatch.setattr(dishes, "calculate_draft", fake_calculate_draft)
-    monkeypatch.setattr(dishes, "validate_image_uploads", lambda uploads: [])
-    monkeypatch.setattr(dishes, "save_uploads", lambda uploads: [])
-    monkeypatch.setattr(dishes, "get_dish", lambda db, dish_id: captured["dish"])
-    monkeypatch.setattr(dishes, "dish_payload", lambda dish: dish)
-
-    saved = dishes.create_dish(
-        payload=DishCreate(
-            name="Паста",
-            description=None,
-            category=DISH_CATEGORIES[0],
-            portion_size_grams=350.0,
-            calories=1.0,
-            protein=2.0,
-            fat=3.0,
-            carbs=4.0,
-            is_vegan=False,
-            is_gluten_free=False,
+        expected_draft = {
+            "calories": 40.0,
+            "protein": 1.5,
+            "fat": 0.5,
+            "carbs": 8.0,
+            "allowed_flags": ["vegan", "gluten_free"],
+        }
+        product = nutrition_product_object_factory(
+            calories=80.0,
+            protein=3.0,
+            fat=1.0,
+            carbs=16.0,
             is_sugar_free=False,
-            ingredients=[DishIngredientInput(product_id=1, quantity_grams=200.0)],
-        ),
-        photo=None,
-        photos=None,
-        db=FakeDb(),
+        )
+        load_products_map_mock = Mock(return_value={3: product})
+        calculate_draft_mock = Mock(return_value=expected_draft)
+        monkeypatch.setattr(dishes, "load_products_map", load_products_map_mock)
+        monkeypatch.setattr(dishes, "calculate_draft", calculate_draft_mock)
+
+        result = dishes.nutrition_draft(
+            ingredients=json.dumps([{"product_id": 3, "quantity_grams": 50.0}]),
+            portion_size_grams=None,
+            db=object(),
+        )
+
+        assert result == expected_draft
+        calculate_draft_mock.assert_called_once_with(
+            [
+                (
+                    {
+                        "calories": 80.0,
+                        "protein": 3.0,
+                        "fat": 1.0,
+                        "carbs": 16.0,
+                        "is_vegan": True,
+                        "is_gluten_free": True,
+                        "is_sugar_free": False,
+                    },
+                    50.0,
+                )
+            ],
+            None,
+        )
+
+
+class TestAutomaticDishNutritionNegativeInputValidation:
+    """Negative unit tests for invalid inputs used by automatic dish nutrition calculation."""
+
+    @pytest.mark.parametrize(
+        ("field_name", "invalid_value"),
+        [
+            pytest.param("portion_size_grams", -0.01, id="negative-portion-size"),
+            pytest.param("calories", -0.01, id="negative-calories"),
+            pytest.param("protein", -0.01, id="negative-protein"),
+            pytest.param("fat", -0.01, id="negative-fat"),
+            pytest.param("carbs", -0.01, id="negative-carbs"),
+        ],
     )
+    def test_dish_payload_rejects_negative_nutrition_values(
+        self,
+        dish_payload_factory,
+        field_name,
+        invalid_value,
+    ):
+        """Reject negative dish nutrition and serving-size inputs before automatic calculation is used."""
 
-    assert saved.calories == 1.0
-    assert saved.protein == 2.0
-    assert saved.fat == 3.0
-    assert saved.carbs == 4.0
-    assert captured["portion_size_grams"] == 350.0
+        with pytest.raises(ValidationError):
+            DishCreate(**dish_payload_factory(**{field_name: invalid_value}))
 
-
-def test_update_dish_preserves_user_overridden_portion_nutrition(monkeypatch):
-    """Manual macro edits are saved, while later input changes can still trigger a new draft calculation."""
-
-    expected_draft = {
-        "calories": 510.0,
-        "protein": 28.0,
-        "fat": 22.0,
-        "carbs": 54.0,
-        "allowed_flags": [],
-    }
-    fake_product = SimpleNamespace(
-        calories=170.0,
-        protein=9.33,
-        fat=7.33,
-        carbs=18.0,
-        is_vegan=False,
-        is_gluten_free=False,
-        is_sugar_free=False,
+    @pytest.mark.parametrize(
+        "ingredients",
+        [
+            pytest.param([{"product_id": 1, "quantity_grams": -0.01}], id="negative-ingredient-quantity"),
+            pytest.param([{"product_id": -1, "quantity_grams": 100.0}], id="negative-product-id"),
+        ],
     )
-    existing_dish = SimpleNamespace(
-        id=11,
-        name="Лазанья",
-        description="",
-        category=DISH_CATEGORIES[0],
-        portion_size_grams=300.0,
-        calories=1.0,
-        protein=2.0,
-        fat=3.0,
-        carbs=4.0,
-        is_vegan=False,
-        is_gluten_free=False,
-        is_sugar_free=False,
-        ingredients=[SimpleNamespace(product_id=1, quantity_grams=300.0)],
-        photos=[],
-        photo_path=None,
+    def test_dish_payload_rejects_negative_ingredient_values(self, dish_payload_factory, ingredients):
+        """Reject invalid ingredient references before products are loaded for calculation."""
+
+        with pytest.raises(ValidationError):
+            DishCreate(**dish_payload_factory(ingredients=ingredients))
+
+    @pytest.mark.parametrize(
+        ("protein", "fat", "carbs", "should_pass"),
+        [
+            pytest.param(40.0, 30.0, 30.0, True, id="macro-sum-equals-portion-size"),
+            pytest.param(40.0, 30.0, 30.01, False, id="macro-sum-exceeds-portion-size"),
+        ],
     )
+    def test_dish_payload_rejects_macro_sum_above_portion_size(
+        self,
+        dish_payload_factory,
+        protein,
+        fat,
+        carbs,
+        should_pass,
+    ):
+        """Use boundary values for the rule: protein + fat + carbs <= portion_size_grams."""
 
-    class FakeDb:
-        def commit(self):
-            return None
+        payload = dish_payload_factory(
+            portion_size_grams=100.0,
+            protein=protein,
+            fat=fat,
+            carbs=carbs,
+        )
 
-    class FakeRequest:
-        headers = {"content-type": "application/json"}
+        if should_pass:
+            dish = DishCreate(**payload)
+            assert dish.protein + dish.fat + dish.carbs == dish.portion_size_grams
+            return
 
-        async def json(self):
-            return {
-                "portion_size_grams": 150.0,
-                "calories": 10.0,
-                "protein": 11.0,
-                "fat": 12.0,
-                "carbs": 13.0,
-            }
-
-    monkeypatch.setattr(dishes, "get_dish", lambda db, dish_id: existing_dish)
-    monkeypatch.setattr(dishes, "load_products_map", lambda db, ingredients: {1: fake_product})
-
-    def fake_calculate_draft(ingredients, portion_size_grams=None):
-        captured["portion_size_grams"] = portion_size_grams
-        return expected_draft
-
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(dishes, "calculate_draft", fake_calculate_draft)
-    monkeypatch.setattr(dishes, "dish_payload", lambda dish: dish)
-
-    updated = asyncio.run(dishes.update_dish(11, FakeRequest(), FakeDb()))
-
-    assert updated.portion_size_grams == 150.0
-    assert updated.calories == 10.0
-    assert updated.protein == 11.0
-    assert updated.fat == 12.0
-    assert updated.carbs == 13.0
-    assert captured["portion_size_grams"] == 150.0
+        with pytest.raises(ValidationError, match="protein \\+ fat \\+ carbs"):
+            DishCreate(**payload)

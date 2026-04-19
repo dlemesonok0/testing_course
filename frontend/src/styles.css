@@ -42,14 +42,22 @@ button, input, select, textarea { font: inherit; }
 .field input, .field textarea, .filters input, .ingredient-row select, .ingredient-row input { width: 100%; border: 1px solid rgba(29, 42, 47, 0.15); border-radius: 12px; padding: 12px 14px; background: rgba(255, 255, 255, 0.95); }
 .field textarea { min-height: 112px; resize: vertical; }
 .checkbox { display: flex; gap: 8px; align-items: center; }
+.flag-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.flag-badge { padding: 6px 10px; border-radius: 999px; background: rgba(43, 107, 98, 0.12); color: #245a53; font-size: 0.9rem; font-weight: 700; }
+.flag-badge-muted { background: rgba(29, 42, 47, 0.08); color: rgba(29, 42, 47, 0.58); }
 .ingredients { list-style: none; padding: 0; }
 .ingredients li { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(29, 42, 47, 0.08); padding-bottom: 8px; }
 .photo-gallery { display: grid; gap: 12px; }
 .photo-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
 .photo-thumb { width: 100%; height: 96px; object-fit: cover; border-radius: 14px; border: 1px solid rgba(29, 42, 47, 0.08); }
 .photo-upload { grid-column: 1 / -1; }
+.file-picker { position: relative; display: inline-flex; width: fit-content; align-items: center; justify-content: center; border-radius: 12px; padding: 10px 14px; cursor: pointer; background: #2b6b62; color: #fff; font-weight: 700; }
+.file-picker:focus-within { outline: 3px solid rgba(43, 107, 98, 0.28); outline-offset: 2px; }
+.file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 .photo-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.photo-chip { padding: 6px 10px; border-radius: 999px; background: rgba(43, 107, 98, 0.12); color: #2b6b62; }
+.photo-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px; border-radius: 999px; background: rgba(43, 107, 98, 0.12); color: #2b6b62; }
+.photo-chip-remove { width: 20px; height: 20px; border: 0; border-radius: 999px; cursor: pointer; background: rgba(171, 74, 54, 0.14); color: #8f3627; line-height: 1; font-weight: 800; }
+.photo-chip-remove:hover { background: #ab4a36; color: #fff; }
 .nutrition { color: #2b6b62; font-weight: 600; }
 .audit-meta { display: grid; gap: 4px; color: rgba(29, 42, 47, 0.72); font-size: 0.95rem; }
 .error { color: #ab2d2d; font-weight: 600; }

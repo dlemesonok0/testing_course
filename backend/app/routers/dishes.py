@@ -378,7 +378,11 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         "is_sugar_free": update_data.get("is_sugar_free", dish.is_sugar_free),
         "ingredients": effective_ingredients,
     }
-    validate_requested_flags(DishCreate.parse_obj(merged), draft["allowed_flags"])
+    try:
+        merged_payload = DishCreate.parse_obj(merged)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+    validate_requested_flags(merged_payload, draft["allowed_flags"])
 
     if update_data:
         for field, value in update_data.items():

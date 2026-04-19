@@ -190,6 +190,16 @@ class DishBase(BaseModel):
     def validate_category(cls, value: str) -> str:
         return validate_choice(value, "category", DISH_CATEGORIES)
 
+    @root_validator
+    def validate_portion_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
+        portion_size_grams = float(values.get("portion_size_grams", 0))
+        protein = float(values.get("protein", 0))
+        fat = float(values.get("fat", 0))
+        carbs = float(values.get("carbs", 0))
+        if protein + fat + carbs > portion_size_grams:
+            raise ValueError("protein + fat + carbs must be less than or equal to portion_size_grams")
+        return values
+
 class DishCreate(DishBase):
     pass
 
