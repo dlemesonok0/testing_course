@@ -18,7 +18,7 @@ def validate_bju_sum(protein: float, fat: float, carbs: float) -> None:
     if protein + fat + carbs > 100:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="protein + fat + carbs must be less than or equal to 100",
+            detail="Сумма белков, жиров и углеводов не может превышать 100г на 100г продукта",
         )
 
 
@@ -142,7 +142,7 @@ def validate_product_photo_batch(uploaded_files: list[UploadFile], photo_links: 
     if len(uploaded_files) + len(photo_links) > MAX_PHOTO_COUNT:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"No more than {MAX_PHOTO_COUNT} photos are allowed",
+            detail=f"Нельзя добавить более {MAX_PHOTO_COUNT} фотографий",
         )
 
 
@@ -165,7 +165,7 @@ def list_products(
         sort_order=sortOrder,
     )
     if params.sort_by not in PRODUCT_SORT_FIELDS:
-        raise HTTPException(status_code=400, detail="Unsupported sort field")
+        raise HTTPException(status_code=400, detail="Неподдерживаемое поле сортировки")
 
     stmt = select(Product).options(selectinload(Product.photos))
     if params.search:
@@ -225,7 +225,7 @@ def create_product(
 def get_product(product_id: int, db: Session = Depends(get_db)):
     product = db.scalar(select(Product).options(selectinload(Product.photos)).where(Product.id == product_id))
     if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Продукт не найден")
     return serialize_product(product)
 
 
@@ -233,7 +233,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 async def update_product(product_id: int, request: Request, db: Session = Depends(get_db)):
     product = db.scalar(select(Product).options(selectinload(Product.photos)).where(Product.id == product_id))
     if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Продукт не найден")
 
     content_type = request.headers.get("content-type", "")
     uploaded_files: list[UploadFile] = []
@@ -241,7 +241,7 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
         try:
             raw_payload = await request.json()
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+            raise HTTPException(status_code=400, detail="Некорректное тело JSON-запроса") from exc
         request_payload = parse_product_update_payload(raw_payload) or ProductUpdate()
     else:
         form_data = await request.form()
@@ -292,10 +292,11 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     product = db.get(Product, product_id)
     if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Продукт не найден")
 
     linked_dishes = db.scalars(
         select(Dish.name)
+        .distinct()
         .join(Dish.ingredients)
         .where(DishIngredient.product_id == product_id)
         .order_by(Dish.name.asc())
@@ -303,7 +304,7 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
     if linked_dishes:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"detail": "Product is used in dishes", "dishes": linked_dishes},
+            detail={"detail": "Продукт используется в блюдах", "dishes": linked_dishes},
         )
 
     db.delete(product)

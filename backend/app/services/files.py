@@ -25,7 +25,7 @@ def validate_image_uploads(files: list[UploadFile] | None, *, max_count: int = M
     if len(normalized) > max_count:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"No more than {max_count} photos are allowed",
+            detail=f"Нельзя добавить более {max_count} фотографий",
         )
     invalid_files = [
         file.filename or "upload"
@@ -35,7 +35,7 @@ def validate_image_uploads(files: list[UploadFile] | None, *, max_count: int = M
     if invalid_files:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Only image files are allowed: {', '.join(invalid_files)}",
+            detail=f"Разрешены только изображения: {', '.join(invalid_files)}",
         )
     return normalized
 

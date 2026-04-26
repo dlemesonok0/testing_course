@@ -75,7 +75,7 @@ def load_products_map(db: Session, ingredients: list[DishIngredientInput]) -> di
     rows = db.scalars(select(Product).where(Product.id.in_(product_ids))).all()
     product_map = {row.id: row for row in rows}
     if len(product_map) != len(product_ids):
-        raise HTTPException(status_code=400, detail="One or more products do not exist")
+        raise HTTPException(status_code=400, detail="Один или несколько продуктов не существуют")
     return product_map
 
 
@@ -230,7 +230,7 @@ def nutrition_draft(
     if not portion_size_grams:
         raise HTTPException(
             status_code=400,
-            detail="Portion size is required. Please provide portion_size_grams parameter."
+            detail="Размер порции обязателен. Пожалуйста, укажите параметр portion_size_grams."
         )
     parsed = parse_ingredients(ingredients)
     product_map = load_products_map(db, parsed)
@@ -251,7 +251,7 @@ def list_dishes(
 ):
     params = SearchParams(search=search, category=category, flags=flags, sort_by=sortBy, sort_order=sortOrder)
     if params.sort_by not in DISH_SORT_FIELDS:
-        raise HTTPException(status_code=400, detail="Unsupported sort field")
+        raise HTTPException(status_code=400, detail="Неподдерживаемое поле сортировки")
 
     stmt = select(Dish).options(
         selectinload(Dish.ingredients).selectinload(DishIngredient.product),
@@ -324,7 +324,7 @@ def create_dish(
 
     created = get_dish(db, dish.id)
     if created is None:
-        raise HTTPException(status_code=500, detail="Dish was not created")
+        raise HTTPException(status_code=500, detail="Блюдо не было создано")
     return dish_payload(created)
 
 
@@ -332,7 +332,7 @@ def create_dish(
 def get_dish_by_id(dish_id: int, db: Session = Depends(get_db)):
     dish = get_dish(db, dish_id)
     if dish is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
     return dish_payload(dish)
 
 
@@ -340,7 +340,7 @@ def get_dish_by_id(dish_id: int, db: Session = Depends(get_db)):
 async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_db)):
     dish = get_dish(db, dish_id)
     if dish is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
 
     content_type = request.headers.get("content-type", "")
     uploaded_files: list[UploadFile] = []
@@ -348,7 +348,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         try:
             raw_payload = await request.json()
         except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+            raise HTTPException(status_code=400, detail="Некорректное тело JSON-запроса") from exc
         request_payload = parse_dish_update_payload(raw_payload) or DishUpdate()
     else:
         form_data = await request.form()
@@ -438,7 +438,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
 
     updated = get_dish(db, dish_id)
     if updated is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
     return dish_payload(updated)
 
 
@@ -446,7 +446,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
 def delete_dish(dish_id: int, db: Session = Depends(get_db)):
     dish = db.get(Dish, dish_id)
     if dish is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
 
     db.delete(dish)
     db.commit()

@@ -76,3 +76,8 @@ button, input, select, textarea { font: inherit; }
 .photo-manage-item img { width: 100%; height: 100%; object-fit: cover; }
 .photo-remove-overlay { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border: 0; border-radius: 999px; background: rgba(171, 74, 54, 0.85); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; backdrop-filter: blur(4px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform 0.2s; }
 .photo-remove-overlay:hover { transform: scale(1.1); background: #ab4a36; }
+
+.error-banner { margin: 16px 0; border-color: rgba(171, 74, 54, 0.25); background: rgba(255, 240, 240, 0.95); display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 20px; }
+.error-content { display: flex; align-items: center; gap: 10px; color: #8f3627; font-weight: 600; }
+.error-icon { font-size: 1.2rem; }
+.error-close { background: transparent; border: 0; color: #8f3627; font-size: 24px; cursor: pointer; padding: 0 4px; line-height: 1; }

@@ -151,10 +151,6 @@ function FlagBadges({ labels, emptyLabel }: { labels: readonly string[]; emptyLa
   );
 }
 
-function photoFileKey(photo: File, index: number) {
-  return `${photo.name}-${photo.size}-${photo.lastModified}-${index}`;
-}
-
 function PhotoGallery({ items, onRemove }: { items: Array<{ url: string; file?: File }>; onRemove: (index: number) => void }) {
   if (!items.length) return null;
   return (
@@ -209,6 +205,19 @@ function PhotoUploadField({ items, onChange, onError }: { items: Array<{ url: st
           onChange(items.filter((_, idx) => idx !== index));
         }}
       />
+    </div>
+  );
+}
+
+function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
+  if (!message) return null;
+  return (
+    <div className="panel error-banner">
+      <div className="error-content">
+        <span className="error-icon">⚠️</span>
+        <span>{message}</span>
+      </div>
+      <button className="error-close" onClick={onClose} aria-label="Закрыть">×</button>
     </div>
   );
 }
@@ -316,7 +325,7 @@ function ProductList() {
         </select>
         <FlagFilter value={selectedFlags} onChange={setSelectedFlags} />
       </div>
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} onClose={() => setError("")} />
       <Cards
         items={items.map((product) => ({
           id: product.id,
@@ -411,7 +420,7 @@ function DishList() {
         </select>
         <FlagFilter value={selectedFlags} onChange={setSelectedFlags} />
       </div>
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} onClose={() => setError("")} />
       <Cards
         items={items.map((dish) => ({
           id: dish.id,
@@ -566,7 +575,6 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [form, setForm] = useState(emptyProduct);
-  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -629,14 +637,10 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
     }
   };
 
-  const photoSelectionError = getPhotoLimitError(form.photos.length);
-  const hasTooManyPhotos = form.photos.length > MAX_PHOTOS;
-
   return (
     <section>
       <Header title={edit ? "Редактирование продукта" : "Новый продукт"} subtitle={`Для продукта можно загрузить до ${MAX_PHOTOS} фотографий.`} />
-      {photoSelectionError && <p className="error">{photoSelectionError}</p>}
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} onClose={() => setError("")} />
       <div className="form-grid">
         <Field label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
         <label className="field">
@@ -674,7 +678,6 @@ function DishForm({ edit = false }: { edit?: boolean }) {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [form, setForm] = useState(emptyDish);
-  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [draft, setDraft] = useState<NutritionDraft | null>(null);
   const [error, setError] = useState("");
   const manualNutritionEditedRef = useRef(false);
@@ -793,14 +796,12 @@ function DishForm({ edit = false }: { edit?: boolean }) {
   };
 
   const allowed = draft?.allowed_flags ?? [];
-  const photoSelectionError = getPhotoLimitError(form.photos.length);
   const hasTooManyPhotos = form.photos.length > MAX_PHOTOS;
 
   return (
     <section>
       <Header title={edit ? "Редактирование блюда" : "Новое блюдо"} subtitle={`Пищевая ценность считается на одну порцию, фото можно загрузить до ${MAX_PHOTOS} штук.`} />
-      {photoSelectionError && <p className="error">{photoSelectionError}</p>}
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} onClose={() => setError("")} />
       <div className="form-grid">
         <Field label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
         <label className="field">
@@ -839,7 +840,22 @@ function DishForm({ edit = false }: { edit?: boolean }) {
           </div>
         ))}
       </div>
-      {draft && <div className="panel accent"><strong>Черновик КБЖУ на порцию:</strong> {draft.calories} / {draft.protein} / {draft.fat} / {draft.carbs}</div>}
+      {draft && (
+        <div className="panel accent">
+          <strong>Черновик КБЖУ на порцию:</strong> {draft.calories} / {draft.protein} / {draft.fat} / {draft.carbs}
+          <div style={{ marginTop: "8px" }}>
+            <strong>Разрешенные флаги:</strong>{" "}
+            {draft.allowed_flags.length > 0 ? (
+              draft.allowed_flags.map((f) => {
+                const label = flags.find(([, , api]) => api === f)?.[1] || f;
+                return <span key={f} className="flag-badge" style={{ marginRight: "4px" }}>{label}</span>;
+              })
+            ) : (
+              <span className="flag-badge flag-badge-muted">Нет</span>
+            )}
+          </div>
+        </div>
+      )}
       <button className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );
