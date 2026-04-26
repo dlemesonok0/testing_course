@@ -1,4 +1,4 @@
-def calculate_draft(ingredients: list[tuple[dict, float]], target_portion_grams: float | None = None) -> dict:
+def calculate_draft(ingredients: list[tuple[dict, float]]) -> dict:
     totals = {"calories": 0.0, "protein": 0.0, "fat": 0.0, "carbs": 0.0}
     total_weight = 0.0
 
@@ -37,3 +37,4 @@ def calculate_draft(ingredients: list[tuple[dict, float]], target_portion_grams:
         "carbs": round(totals["carbs"], 2),
         "allowed_flags": allowed_flags,
     }
+

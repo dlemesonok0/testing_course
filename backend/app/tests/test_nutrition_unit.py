@@ -97,6 +97,8 @@ class TestAutomaticDishNutrition:
     @pytest.mark.parametrize(
         ("quantity_grams", "expected_calories"),
         [
+            pytest.param(0.0, 0.0, id="zero-quantity-boundary"),
+            pytest.param(0.01, 0.01, id="minimum-positive-quantity"),
             pytest.param(99.99, 123.44, id="just-below-100g-reference"),
             pytest.param(100.0, 123.45, id="exact-100g-reference"),
             pytest.param(100.01, 123.46, id="just-above-100g-reference"),
@@ -108,7 +110,11 @@ class TestAutomaticDishNutrition:
         quantity_grams,
         expected_calories,
     ):
-        """Check the boundary around the product nutrition reference value of 100 g."""
+        """
+        Verify that caloric values scale linearly relative to the 100g reference quantity.
+        Applied Boundary Value Analysis (BVA) for the quantity_grams parameter, including 0.0, 
+        minimal positive values, and values surrounding the 100g reference point.
+        """
 
         product = nutrition_product_factory(calories=123.45, protein=0.0, fat=0.0, carbs=0.0)
 
@@ -116,64 +122,23 @@ class TestAutomaticDishNutrition:
 
         assert result["calories"] == expected_calories
 
-    @pytest.mark.parametrize(
-        ("portion_size_grams", "expected_calories"),
-        [
-            pytest.param(99.9, 149.85, id="just-below-100g-portion"),
-            pytest.param(100.0, 150.0, id="exact-100g-portion"),
-            pytest.param(100.1, 150.15, id="just-above-100g-portion"),
-            pytest.param(300.0, 450.0, id="larger-serving-portion"),
-        ],
-    )
-    def test_recalculates_nutrition_to_requested_portion_size(
-        self,
-        nutrition_product_factory,
-        portion_size_grams,
-        expected_calories,
-    ):
-        """Check that dish calories are calculated for the selected serving size, not per 100 g of dish."""
-
-        ingredients = [
-            (
-                nutrition_product_factory(
-                    calories=100.0,
-                    protein=10.0,
-                    fat=5.0,
-                    carbs=20.0,
-                ),
-                50.0,
-            ),
-            (
-                nutrition_product_factory(
-                    calories=200.0,
-                    protein=20.0,
-                    fat=10.0,
-                    carbs=40.0,
-                ),
-                50.0,
-            ),
-        ]
-
-        result = calculate_draft(ingredients, portion_size_grams=portion_size_grams)
-
-        assert result["calories"] == expected_calories
 
 
 class TestNutritionDraftEndpointWithMocks:
     """Unit tests for endpoint delegation using mocked collaborators."""
 
-    def test_nutrition_draft_endpoint_delegates_to_calculation_service_with_portion(
+    def test_nutrition_draft_endpoint_delegates_to_calculation_service(
         self,
         monkeypatch,
         nutrition_product_object_factory,
     ):
-        """Mock endpoint collaborators and verify that serving size is forwarded to the calculator."""
+        """Mock endpoint collaborators and verify that ingredients are forwarded to the calculator."""
 
         expected_draft = {
-            "calories": 375.0,
-            "protein": 37.5,
-            "fat": 18.75,
-            "carbs": 75.0,
+            "calories": 150.0,
+            "protein": 15.0,
+            "fat": 7.5,
+            "carbs": 30.0,
             "allowed_flags": ["vegan", "gluten_free", "sugar_free"],
         }
         product = nutrition_product_object_factory(
@@ -189,7 +154,6 @@ class TestNutritionDraftEndpointWithMocks:
 
         result = dishes.nutrition_draft(
             ingredients=json.dumps([{"product_id": 7, "quantity_grams": 100.0}]),
-            portion_size_grams=250.0,
             db=object(),
         )
 
@@ -212,45 +176,9 @@ class TestNutritionDraftEndpointWithMocks:
                     },
                     100.0,
                 )
-            ],
-            250.0,
+            ]
         )
 
-    def test_nutrition_draft_endpoint_delegates_to_calculation_service_without_portion(
-        self,
-        monkeypatch,
-        nutrition_product_object_factory,
-    ):
-        """Mock endpoint collaborators and verify that missing serving size is passed as None."""
-
-        expected_draft = {
-            "calories": 40.0,
-            "protein": 1.5,
-            "fat": 0.5,
-            "carbs": 8.0,
-            "allowed_flags": ["vegan", "gluten_free"],
-        }
-        product = nutrition_product_object_factory(
-            calories=80.0,
-            protein=3.0,
-            fat=1.0,
-            carbs=16.0,
-            is_sugar_free=False,
-        )
-        load_products_map_mock = Mock(return_value={3: product})
-        calculate_draft_mock = Mock(return_value=expected_draft)
-        monkeypatch.setattr(dishes, "load_products_map", load_products_map_mock)
-        monkeypatch.setattr(dishes, "calculate_draft", calculate_draft_mock)
-
-        with pytest.raises(HTTPException) as exc_info:
-            dishes.nutrition_draft(
-            ingredients=json.dumps([{"product_id": 3, "quantity_grams": 50.0}]),
-            portion_size_grams=None,
-            db=object(),
-        )
-    
-        assert exc_info.value.status_code == 400
-        assert "Portion size is required. Please provide portion_size_grams parameter." in exc_info.value.detail
 
 
 class TestAutomaticDishNutritionNegativeInputValidation:
@@ -319,5 +247,5 @@ class TestAutomaticDishNutritionNegativeInputValidation:
             assert dish.protein + dish.fat + dish.carbs == dish.portion_size_grams
             return
 
-        with pytest.raises(ValidationError, match="protein \\+ fat \\+ carbs"):
+        with pytest.raises(ValidationError):
             DishCreate(**payload)

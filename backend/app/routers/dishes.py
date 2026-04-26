@@ -189,8 +189,7 @@ def dish_payload(dish: Dish) -> DishRead:
     if not photo_urls and dish.photo_path:
         photo_urls = [build_asset_url(dish.photo_path)]
     draft = calculate_draft(
-        [(product_nutrition_snapshot(item.product), item.quantity_grams) for item in dish.ingredients],
-        target_portion_grams=dish.portion_size_grams
+        [(product_nutrition_snapshot(item.product), item.quantity_grams) for item in dish.ingredients]
     )
     return DishRead(
         id=dish.id,
@@ -224,19 +223,12 @@ def dish_payload(dish: Dish) -> DishRead:
 @router.get("/nutrition-draft", response_model=NutritionDraft)
 def nutrition_draft(
     ingredients: str = Query(...),
-    portion_size_grams: float | None = Query(default=None, gt=0),
     db: Session = Depends(get_db),
 ):
-    if not portion_size_grams:
-        raise HTTPException(
-            status_code=400,
-            detail="Размер порции обязателен. Пожалуйста, укажите параметр portion_size_grams."
-        )
     parsed = parse_ingredients(ingredients)
     product_map = load_products_map(db, parsed)
     return calculate_draft(
-        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in parsed],
-        target_portion_grams=portion_size_grams
+        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in parsed]
     )
 
 
@@ -284,8 +276,7 @@ def create_dish(
 ):
     product_map = load_products_map(db, payload.ingredients)
     draft = calculate_draft(
-        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients],
-        target_portion_grams=payload.portion_size_grams
+        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients]
     )
     final_vegan, final_gluten_free, final_sugar_free = get_allowed_flags_subset(
         payload.is_vegan, payload.is_gluten_free, payload.is_sugar_free, draft["allowed_flags"]
@@ -378,8 +369,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
     effective_portion_size = float(update_data.get("portion_size_grams", dish.portion_size_grams))
     product_map = load_products_map(db, effective_ingredients)
     draft = calculate_draft(
-        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in effective_ingredients],
-        target_portion_grams=effective_portion_size
+        [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in effective_ingredients]
     )
 
     merged = {
