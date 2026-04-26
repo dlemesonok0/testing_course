@@ -47,6 +47,13 @@ def save_uploads(files: list[UploadFile] | None) -> list[str]:
 
 
 def build_asset_url(path: str) -> str:
-    if path.startswith(("http://", "https://")):
+    if path.startswith(("http://", "https://", "/uploads/")):
         return path
     return f"/uploads/{path}"
+
+
+def normalize_storage_path(url_or_path: str) -> str:
+    """Removes the /uploads/ prefix if present to store only the filename for local assets."""
+    if url_or_path.startswith("/uploads/"):
+        return url_or_path[len("/uploads/"):]
+    return url_or_path

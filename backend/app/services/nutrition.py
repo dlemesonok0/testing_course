@@ -1,23 +1,23 @@
-def calculate_draft(ingredients: list[tuple[dict, float]], portion_size_grams: float | None = None) -> dict:
+def calculate_draft(ingredients: list[tuple[dict, float]], target_portion_grams: float | None = None) -> dict:
     totals = {"calories": 0.0, "protein": 0.0, "fat": 0.0, "carbs": 0.0}
+    total_weight = 0.0
+
     if not ingredients:
         return {**totals, "allowed_flags": []}
 
     vegan = True
     gluten_free = True
     sugar_free = True
-    total_ingredient_grams = sum(quantity_grams for _, quantity_grams in ingredients)
-    portion_multiplier = 1.0
-    if portion_size_grams is not None and total_ingredient_grams > 0:
-        portion_multiplier = portion_size_grams / total_ingredient_grams
 
     for product, quantity_grams in ingredients:
-        quantity_in_portion = quantity_grams * portion_multiplier
-        multiplier = quantity_in_portion / 100
+        total_weight += quantity_grams
+        multiplier = quantity_grams / 100
+
         totals["calories"] += product["calories"] * multiplier
         totals["protein"] += product["protein"] * multiplier
         totals["fat"] += product["fat"] * multiplier
         totals["carbs"] += product["carbs"] * multiplier
+
         vegan = vegan and bool(product["is_vegan"])
         gluten_free = gluten_free and bool(product["is_gluten_free"])
         sugar_free = sugar_free and bool(product["is_sugar_free"])

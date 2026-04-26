@@ -105,7 +105,7 @@ const emptyProduct = {
   is_vegan: false,
   is_gluten_free: false,
   is_sugar_free: false,
-  photos: [] as File[],
+  photos: [] as Array<{ url: string; file?: File }>,
 };
 
 const emptyDish = {
@@ -120,7 +120,7 @@ const emptyDish = {
   is_vegan: false,
   is_gluten_free: false,
   is_sugar_free: false,
-  photos: [] as File[],
+  photos: [] as Array<{ url: string; file?: File }>,
   ingredients: [{ product_id: 0, quantity_grams: "100" }] as IngredientInput[],
 };
 
@@ -155,43 +155,59 @@ function photoFileKey(photo: File, index: number) {
   return `${photo.name}-${photo.size}-${photo.lastModified}-${index}`;
 }
 
-function SelectedPhotoList({ photos, onRemove }: { photos: File[]; onRemove: (index: number) => void }) {
-  if (!photos.length) return null;
-
+function PhotoGallery({ items, onRemove }: { items: Array<{ url: string; file?: File }>; onRemove: (index: number) => void }) {
+  if (!items.length) return null;
   return (
-    <div className="photo-list">
-      {photos.map((photo, index) => (
-        <span className="photo-chip" key={photoFileKey(photo, index)}>
-          <span>{photo.name}</span>
-          <button className="photo-chip-remove" type="button" aria-label={`Remove ${photo.name}`} onClick={() => onRemove(index)}>
-            x
-          </button>
-        </span>
+    <div className="photo-grid-manage">
+      {items.map((item, index) => (
+        <div className="photo-manage-item" key={index}>
+          <img src={item.url} alt={`photo-${index}`} />
+          <button className="photo-remove-overlay" type="button" onClick={() => onRemove(index)}>×</button>
+        </div>
       ))}
     </div>
   );
 }
 
-function PhotoUploadField({ photos, onChange }: { photos: File[]; onChange: (photos: File[]) => void }) {
+function PhotoUploadField({ items, onChange, onError }: { items: Array<{ url: string; file?: File }>; onChange: (items: Array<{ url: string; file?: File }>) => void; onError: (msg: string) => void }) {
+  const handleFiles = (files: File[]) => {
+    if (items.length + files.length > MAX_PHOTOS) {
+      onError(`Нельзя загрузить более ${MAX_PHOTOS} фотографий.`);
+      return;
+    }
+    const newItems = files.map(file => ({
+      url: URL.createObjectURL(file),
+      file
+    }));
+    onChange([...items, ...newItems]);
+    onError("");
+  };
+
   return (
     <div className="field photo-upload">
-      <span>Фотографии</span>
-      <label className="file-picker">
-        <input
-          className="file-input"
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(e) => {
-            onChange(Array.from(e.currentTarget.files ?? []));
-            e.currentTarget.value = "";
-          }}
-        />
-        <span>Выбрать фото</span>
-      </label>
-      <SelectedPhotoList
-        photos={photos}
-        onRemove={(index) => onChange(photos.filter((_, photoIndex) => photoIndex !== index))}
+      <span>Фотографии (макс. {MAX_PHOTOS})</span>
+      {items.length < MAX_PHOTOS && (
+        <label className="file-picker">
+          <input
+            className="file-input"
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => {
+              handleFiles(Array.from(e.currentTarget.files ?? []));
+              e.currentTarget.value = "";
+            }}
+          />
+          <span>Добавить фото</span>
+        </label>
+      )}
+      <PhotoGallery
+        items={items}
+        onRemove={(index) => {
+          const item = items[index];
+          if (item.file) URL.revokeObjectURL(item.url);
+          onChange(items.filter((_, idx) => idx !== index));
+        }}
       />
     </div>
   );
@@ -283,14 +299,17 @@ function ProductList() {
           <option value="">Любая готовность</option>
           {COOKING_STATES.map((item) => <option value={item} key={item}>{item}</option>)}
         </select>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-          <option value="name">Название</option>
-          <option value="calories">{PRODUCT_CALORIES_LABEL}</option>
-          <option value="protein">Белки</option>
-          <option value="fat">Жиры</option>
-          <option value="carbs">Углеводы</option>
-          <option value="created_at">Дата создания</option>
-        </select>
+        <label className="filter-field">
+          <span>Сортировка по</span>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="name">Название</option>
+            <option value="calories">{PRODUCT_CALORIES_LABEL}</option>
+            <option value="protein">Белки</option>
+            <option value="fat">Жиры</option>
+            <option value="carbs">Углеводы</option>
+            <option value="created_at">Дата создания</option>
+          </select>
+        </label>
         <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
           <option value="asc">По возрастанию</option>
           <option value="desc">По убыванию</option>
@@ -375,14 +394,17 @@ function DishList() {
           <option value="">Любая категория</option>
           {DISH_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
         </select>
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-          <option value="name">Название</option>
-          <option value="calories">{DISH_CALORIES_LABEL}</option>
-          <option value="protein">Белки</option>
-          <option value="fat">Жиры</option>
-          <option value="carbs">Углеводы</option>
-          <option value="created_at">Дата создания</option>
-        </select>
+        <label className="filter-field">
+          <span>Сортировка по</span>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="name">Название</option>
+            <option value="calories">{DISH_CALORIES_LABEL}</option>
+            <option value="protein">Белки</option>
+            <option value="fat">Жиры</option>
+            <option value="carbs">Углеводы</option>
+            <option value="created_at">Дата создания</option>
+          </select>
+        </label>
         <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
           <option value="asc">По возрастанию</option>
           <option value="desc">По убыванию</option>
@@ -551,7 +573,6 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
     if (!edit || !id) return;
     void getProduct(Number(id)).then((item) =>
       {
-        setExistingPhotoUrls(item.photo_urls);
         setForm({
           name: item.name,
           calories: String(item.calories),
@@ -564,7 +585,7 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
           is_vegan: item.is_vegan,
           is_gluten_free: item.is_gluten_free,
           is_sugar_free: item.is_sugar_free,
-          photos: [],
+          photos: item.photo_urls.map(url => ({ url: assetUrl(url) })),
         });
       }
     );
@@ -586,7 +607,14 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
       body.append("is_vegan", String(form.is_vegan));
       body.append("is_gluten_free", String(form.is_gluten_free));
       body.append("is_sugar_free", String(form.is_sugar_free));
-      form.photos.forEach((photo) => body.append("photos", photo));
+      
+      form.photos.forEach((item) => {
+        if (item.file) {
+          body.append("photos", item.file);
+        } else {
+          body.append("photo_links", item.url);
+        }
+      });
 
       if (edit && id) {
         const saved = await updateProduct(Number(id), body);
@@ -634,18 +662,9 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
             {label}
           </label>
         ))}
-        <PhotoUploadField photos={form.photos} onChange={(photos) => setForm((prev) => ({ ...prev, photos }))} />
+        <PhotoUploadField items={form.photos} onChange={(items) => setForm((prev) => ({ ...prev, photos: items }))} onError={setError} />
       </div>
-      {existingPhotoUrls.length > 0 && (
-        <div className="panel">
-          <div className="photo-strip">
-            {existingPhotoUrls.map((photoUrl, index) => (
-              <img className="photo-thumb" key={`${photoUrl}-${index}`} src={assetUrl(photoUrl)} alt={`product-photo-${index + 1}`} />
-            ))}
-          </div>
-        </div>
-      )}
-      <button className="primary" disabled={hasTooManyPhotos} onClick={() => void submit()}>Сохранить</button>
+      <button className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );
 }
@@ -668,7 +687,6 @@ function DishForm({ edit = false }: { edit?: boolean }) {
   useEffect(() => {
     if (!edit || !id) return;
     void getDish(Number(id)).then((item) => {
-      setExistingPhotoUrls(item.photo_urls);
       skipNextDraftNutritionApplyRef.current = true;
       setForm({
         name: item.name,
@@ -682,7 +700,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
         is_vegan: item.is_vegan,
         is_gluten_free: item.is_gluten_free,
         is_sugar_free: item.is_sugar_free,
-        photos: [],
+        photos: item.photo_urls.map(url => ({ url: assetUrl(url) })),
         ingredients: item.ingredients.map((ingredient) => ({
           product_id: ingredient.product_id,
           quantity_grams: String(ingredient.quantity_grams),
@@ -754,7 +772,13 @@ function DishForm({ edit = false }: { edit?: boolean }) {
     body.append("is_gluten_free", String(form.is_gluten_free));
     body.append("is_sugar_free", String(form.is_sugar_free));
     body.append("ingredients", JSON.stringify(ingredients));
-    form.photos.forEach((photo) => body.append("photos", photo));
+    form.photos.forEach((item) => {
+      if (item.file) {
+        body.append("photos", item.file);
+      } else {
+        body.append("photo_links", item.url);
+      }
+    });
     try {
       if (edit && id) {
         const saved = await updateDish(Number(id), body);
@@ -797,17 +821,8 @@ function DishForm({ edit = false }: { edit?: boolean }) {
             {label}
           </label>
         ))}
-        <PhotoUploadField photos={form.photos} onChange={(photos) => setForm((prev) => ({ ...prev, photos }))} />
+        <PhotoUploadField items={form.photos} onChange={(items) => setForm((prev) => ({ ...prev, photos: items }))} onError={setError} />
       </div>
-      {existingPhotoUrls.length > 0 && (
-        <div className="panel">
-          <div className="photo-strip">
-            {existingPhotoUrls.map((photoUrl, index) => (
-              <img className="photo-thumb" key={`${photoUrl}-${index}`} src={assetUrl(photoUrl)} alt={`dish-photo-${index + 1}`} />
-            ))}
-          </div>
-        </div>
-      )}
       <div className="panel">
         <div className="ingredients-header">
           <h3>Состав блюда</h3>
@@ -825,7 +840,7 @@ function DishForm({ edit = false }: { edit?: boolean }) {
         ))}
       </div>
       {draft && <div className="panel accent"><strong>Черновик КБЖУ на порцию:</strong> {draft.calories} / {draft.protein} / {draft.fat} / {draft.carbs}</div>}
-      <button className="primary" disabled={hasTooManyPhotos} onClick={() => void submit()}>Сохранить</button>
+      <button className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );
 }

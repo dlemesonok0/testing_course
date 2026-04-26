@@ -91,7 +91,7 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    photo_links: list[AnyHttpUrl] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
+    photo_links: list[str] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
 
 
 class ProductUpdate(BaseModel):
@@ -106,7 +106,7 @@ class ProductUpdate(BaseModel):
     is_vegan: bool | None = None
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None
-    photo_links: list[AnyHttpUrl] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
+    photo_links: list[str] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
 
     @validator("name")
     def validate_name(cls, value: str | None) -> str | None:
@@ -200,8 +200,9 @@ class DishBase(BaseModel):
             raise ValueError("protein + fat + carbs must be less than or equal to portion_size_grams")
         return values
 
+
 class DishCreate(DishBase):
-    pass
+    photo_links: list[str] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
 
 
 class DishUpdate(BaseModel):
@@ -217,6 +218,7 @@ class DishUpdate(BaseModel):
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None
     ingredients: list[DishIngredientInput] | None = Field(default=None, min_items=1)
+    photo_links: list[str] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
 
     @validator("name")
     def validate_name(cls, value: str | None) -> str | None:

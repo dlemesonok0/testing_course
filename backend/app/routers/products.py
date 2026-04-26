@@ -8,6 +8,7 @@ from app.models import Dish, DishIngredient, Product, ProductPhoto
 from app.schemas import MAX_PHOTO_COUNT, PRODUCT_SORT_FIELDS, ProductCreate, ProductRead, ProductUpdate, SearchParams
 from app.services.files import build_asset_url, save_uploads, validate_image_uploads
 
+
 router = APIRouter(prefix="/products", tags=["products"])
 
 DIET_FLAG_FIELDS = ("is_vegan", "is_gluten_free", "is_sugar_free")
@@ -133,7 +134,8 @@ def uploaded_files_from_form(form_data, field_name: str) -> list[UploadFile]:
 
 
 def normalize_product_photo_links(photo_links: list[object] | None) -> list[str]:
-    return [str(link).strip() for link in (photo_links or []) if str(link).strip()]
+    from app.services.files import normalize_storage_path
+    return [normalize_storage_path(str(link).strip()) for link in (photo_links or []) if str(link).strip()]
 
 
 def validate_product_photo_batch(uploaded_files: list[UploadFile], photo_links: list[str]) -> None:
@@ -266,7 +268,14 @@ async def update_product(product_id: int, request: Request, db: Session = Depend
             else:
                 setattr(product, field, value)
     if photo_links_provided or new_photo_paths:
-        all_photo_sources = [*new_photo_paths, *photo_links]
+        # If photo_links_provided is True, it means we have a list of existing photos to keep/reorder.
+        # If it's False, but new_photo_paths is not empty, we keep ALL existing photos and ADD new ones.
+        if photo_links_provided:
+            all_photo_sources = [*new_photo_paths, *photo_links]
+        else:
+            existing_paths = [photo.file_path for photo in product.photos]
+            all_photo_sources = [*new_photo_paths, *existing_paths]
+
         product.photo_path = all_photo_sources[0] if all_photo_sources else None
         product.photos.clear()
         for index, file_path in enumerate(all_photo_sources):

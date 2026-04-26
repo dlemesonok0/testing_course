@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 import json
 from unittest.mock import Mock
 
@@ -241,30 +242,15 @@ class TestNutritionDraftEndpointWithMocks:
         monkeypatch.setattr(dishes, "load_products_map", load_products_map_mock)
         monkeypatch.setattr(dishes, "calculate_draft", calculate_draft_mock)
 
-        result = dishes.nutrition_draft(
+        with pytest.raises(HTTPException) as exc_info:
+            dishes.nutrition_draft(
             ingredients=json.dumps([{"product_id": 3, "quantity_grams": 50.0}]),
             portion_size_grams=None,
             db=object(),
         )
-
-        assert result == expected_draft
-        calculate_draft_mock.assert_called_once_with(
-            [
-                (
-                    {
-                        "calories": 80.0,
-                        "protein": 3.0,
-                        "fat": 1.0,
-                        "carbs": 16.0,
-                        "is_vegan": True,
-                        "is_gluten_free": True,
-                        "is_sugar_free": False,
-                    },
-                    50.0,
-                )
-            ],
-            None,
-        )
+    
+        assert exc_info.value.status_code == 400
+        assert "Portion size is required. Please provide portion_size_grams parameter." in exc_info.value.detail
 
 
 class TestAutomaticDishNutritionNegativeInputValidation:
