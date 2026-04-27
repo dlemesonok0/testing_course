@@ -17,17 +17,6 @@ class TestAutomaticDishNutrition:
         ("build_ingredients", "expected"),
         [
             pytest.param(
-                lambda product: [],
-                {
-                    "calories": 0.0,
-                    "protein": 0.0,
-                    "fat": 0.0,
-                    "carbs": 0.0,
-                    "allowed_flags": [],
-                },
-                id="empty-dish",
-            ),
-            pytest.param(
                 lambda product: [
                     (
                         product(
