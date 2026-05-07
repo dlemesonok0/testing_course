@@ -25,7 +25,7 @@ def validate_image_uploads(files: list[UploadFile] | None, *, max_count: int = M
     if len(normalized) > max_count:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"No more than {max_count} photos are allowed",
+            detail=f"Нельзя добавить более {max_count} фотографий",
         )
     invalid_files = [
         file.filename or "upload"
@@ -35,7 +35,7 @@ def validate_image_uploads(files: list[UploadFile] | None, *, max_count: int = M
     if invalid_files:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Only image files are allowed: {', '.join(invalid_files)}",
+            detail=f"Разрешены только изображения: {', '.join(invalid_files)}",
         )
     return normalized
 
@@ -47,6 +47,13 @@ def save_uploads(files: list[UploadFile] | None) -> list[str]:
 
 
 def build_asset_url(path: str) -> str:
-    if path.startswith(("http://", "https://")):
+    if path.startswith(("http://", "https://", "/uploads/")):
         return path
     return f"/uploads/{path}"
+
+
+def normalize_storage_path(url_or_path: str) -> str:
+    """Removes the /uploads/ prefix if present to store only the filename for local assets."""
+    if url_or_path.startswith("/uploads/"):
+        return url_or_path[len("/uploads/"):]
+    return url_or_path

@@ -37,23 +37,23 @@ COOKING_STATES = (
 def normalize_required_text(value: str, field_name: str) -> str:
     normalized = " ".join(value.split())
     if len(normalized) < 2:
-        raise ValueError(f"{field_name} must be at least 2 characters long")
+        raise ValueError(f"Поле {field_name} должно содержать минимум 2 символа")
     return normalized
 
 
 def validate_choice(value: str, field_name: str, allowed: tuple[str, ...]) -> str:
     normalized = " ".join(value.split())
     if normalized not in allowed:
-        raise ValueError(f"{field_name} must be one of: {', '.join(allowed)}")
+        raise ValueError(f"Поле {field_name} должно быть одним из: {', '.join(allowed)}")
     return normalized
 
 
 class ProductBase(BaseModel):
     name: str = Field(max_length=255)
     calories: float = Field(ge=0)
-    protein: float = Field(ge=0, le=100)
-    fat: float = Field(ge=0, le=100)
-    carbs: float = Field(ge=0, le=100)
+    protein: float = Field(ge=0)
+    fat: float = Field(ge=0)
+    carbs: float = Field(ge=0)
     composition: str | None = None
     category: str = Field(max_length=120)
     cooking_state: str = Field(max_length=64)
@@ -80,33 +80,39 @@ class ProductBase(BaseModel):
     def validate_cooking_state(cls, value: str) -> str:
         return validate_choice(value, "cooking_state", COOKING_STATES)
 
+    @validator("protein", "fat", "carbs")
+    def validate_bju_limit(cls, value: float, field: Field) -> float:
+        if value > 100:
+            raise ValueError(f"Значение {field.name} не может превышать 100")
+        return value
+
     @root_validator
     def validate_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
         protein = float(values.get("protein", 0))
         fat = float(values.get("fat", 0))
         carbs = float(values.get("carbs", 0))
         if protein + fat + carbs > 100:
-            raise ValueError("protein + fat + carbs must be less than or equal to 100")
+            raise ValueError("сумма белков, жиров и углеводов не может превышать 100")
         return values
 
 
 class ProductCreate(ProductBase):
-    photo_links: list[AnyHttpUrl] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
+    photo_links: list[str] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
 
 
 class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     calories: float | None = Field(default=None, ge=0)
-    protein: float | None = Field(default=None, ge=0, le=100)
-    fat: float | None = Field(default=None, ge=0, le=100)
-    carbs: float | None = Field(default=None, ge=0, le=100)
+    protein: float | None = Field(default=None, ge=0)
+    fat: float | None = Field(default=None, ge=0)
+    carbs: float | None = Field(default=None, ge=0)
     composition: str | None = None
     category: str | None = Field(default=None, max_length=120)
     cooking_state: str | None = Field(default=None, max_length=64)
     is_vegan: bool | None = None
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None
-    photo_links: list[AnyHttpUrl] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
+    photo_links: list[str] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
 
     @validator("name")
     def validate_name(cls, value: str | None) -> str | None:
@@ -167,9 +173,9 @@ class DishBase(BaseModel):
     category: str = Field(max_length=120)
     portion_size_grams: float = Field(gt=0)
     calories: float = Field(ge=0)
-    protein: float = Field(ge=0, le=100)
-    fat: float = Field(ge=0, le=100)
-    carbs: float = Field(ge=0, le=100)
+    protein: float = Field(ge=0)
+    fat: float = Field(ge=0)
+    carbs: float = Field(ge=0)
     is_vegan: bool = False
     is_gluten_free: bool = False
     is_sugar_free: bool = False
@@ -191,17 +197,18 @@ class DishBase(BaseModel):
         return validate_choice(value, "category", DISH_CATEGORIES)
 
     @root_validator
-    def validate_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
+    def validate_portion_bju_sum(cls, values: dict[str, object]) -> dict[str, object]:
+        portion_size_grams = float(values.get("portion_size_grams", 0))
         protein = float(values.get("protein", 0))
         fat = float(values.get("fat", 0))
         carbs = float(values.get("carbs", 0))
-        if protein + fat + carbs > 100:
-            raise ValueError("protein + fat + carbs must be less than or equal to 100")
+        if protein + fat + carbs > portion_size_grams:
+            raise ValueError("сумма белков, жиров и углеводов не может превышать размер порции")
         return values
 
 
 class DishCreate(DishBase):
-    pass
+    photo_links: list[str] = Field(default_factory=list, max_items=MAX_PHOTO_COUNT)
 
 
 class DishUpdate(BaseModel):
@@ -210,13 +217,14 @@ class DishUpdate(BaseModel):
     category: str | None = Field(default=None, max_length=120)
     portion_size_grams: float | None = Field(default=None, gt=0)
     calories: float | None = Field(default=None, ge=0)
-    protein: float | None = Field(default=None, ge=0, le=100)
-    fat: float | None = Field(default=None, ge=0, le=100)
-    carbs: float | None = Field(default=None, ge=0, le=100)
+    protein: float | None = Field(default=None, ge=0)
+    fat: float | None = Field(default=None, ge=0)
+    carbs: float | None = Field(default=None, ge=0)
     is_vegan: bool | None = None
     is_gluten_free: bool | None = None
     is_sugar_free: bool | None = None
     ingredients: list[DishIngredientInput] | None = Field(default=None, min_items=1)
+    photo_links: list[str] | None = Field(default=None, max_items=MAX_PHOTO_COUNT)
 
     @validator("name")
     def validate_name(cls, value: str | None) -> str | None:
@@ -286,7 +294,7 @@ class SearchParams(BaseModel):
         normalized = sorted(set(value))
         invalid = [flag for flag in normalized if flag not in FLAG_NAMES]
         if invalid:
-            raise ValueError(f"Invalid flags: {', '.join(invalid)}")
+            raise ValueError(f"Некорректные флаги: {', '.join(invalid)}")
         return normalized
 
     @validator("cooking_state")
@@ -298,5 +306,5 @@ class SearchParams(BaseModel):
     @validator("sort_order")
     def validate_sort_order(cls, value: str) -> str:
         if value not in {"asc", "desc"}:
-            raise ValueError("sort_order must be asc or desc")
+            raise ValueError("порядок сортировки должен быть asc или desc")
         return value

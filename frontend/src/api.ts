@@ -1,28 +1,85 @@
 import type { Dish, NutritionDraft, Product } from "./types";
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = "http://127.0.0.1:8001";
 
 type ApiValidationIssue = {
   loc?: Array<string | number>;
   msg?: string;
 };
 
+const FIELD_TRANSLATIONS: Record<string, string> = {
+  name: "Название",
+  calories: "Калории",
+  protein: "Белки",
+  fat: "Жиры",
+  carbs: "Углеводы",
+  portion_size_grams: "Размер порции",
+  category: "Категория",
+  cooking_state: "Степень готовности",
+  quantity_grams: "Количество (г)",
+  product_id: "Продукт",
+  ingredients: "Состав",
+};
+
+const MSG_TRANSLATIONS: Record<string, string> = {
+  "field required": "обязательно для заполнения",
+  "value is not a valid float": "должно быть числом",
+  "value is not a valid integer": "должно быть целым числом",
+  "ensure this value has at least 2 characters": "минимум 2 символа",
+  "ensure this value has at most 255 characters": "максимум 255 символов",
+  "ensure this value is greater than 0": "должно быть больше 0",
+  "ensure this value is greater than or equal to 0": "не может быть отрицательным",
+  "ensure this value is less than or equal to": "не должно превышать",
+  "less than or equal to": "не должно превышать",
+  "greater than or equal to": "должно быть не меньше",
+  "protein + fat + carbs must be less than or equal to 100": "сумма БЖУ не может быть больше 100",
+  "protein + fat + carbs must be less than or equal to portion_size_grams": "сумма БЖУ не может быть больше веса порции",
+};
+
+function translateField(field: string | number): string {
+  return FIELD_TRANSLATIONS[String(field)] ?? String(field);
+}
+
+function translateMessage(msg: string): string {
+  for (const [eng, rus] of Object.entries(MSG_TRANSLATIONS)) {
+    if (msg.toLowerCase().includes(eng.toLowerCase())) return rus;
+  }
+  return msg;
+}
+
 function formatApiErrorDetail(detail: unknown): string {
-  if (typeof detail === "string") return detail;
+  if (!detail) return "Произошла неизвестная ошибка";
+  if (typeof detail === "string") {
+    if (detail === "Product is used in dishes") return "Нельзя удалить: продукт используется в блюдах";
+    return translateMessage(detail);
+  }
+
+  // Handle Pydantic validation errors (list of objects)
   if (Array.isArray(detail)) {
-    const messages = detail
+    return detail
       .map((issue) => {
         if (!issue || typeof issue !== "object") return "";
-        const typedIssue = issue as ApiValidationIssue;
-        const field = typedIssue.loc?.[typedIssue.loc.length - 1];
-        if (typedIssue.msg && field) return `${String(field)}: ${typedIssue.msg}`;
-        return typedIssue.msg ?? "";
+        const typed = issue as ApiValidationIssue;
+        const field = typed.loc?.[typed.loc.length - 1];
+        const msg = typed.msg ? translateMessage(typed.msg) : "";
+        if (field && msg) return `${translateField(field)}: ${msg}`;
+        return msg;
       })
-      .filter(Boolean);
-    if (messages.length > 0) return messages.join("; ");
+      .filter(Boolean)
+      .join("; ");
   }
-  if (detail && typeof detail === "object") return JSON.stringify(detail);
-  return "Не удалось обработать запрос";
+
+  // Handle custom error objects (like 409 Conflict)
+  if (typeof detail === "object") {
+    const d = detail as Record<string, any>;
+    if ((d.detail === "Product is used in dishes" || d.detail === "Продукт используется в блюдах") && Array.isArray(d.dishes)) {
+      const uniqueDishes = Array.from(new Set(d.dishes));
+      return `Нельзя удалить: продукт используется в блюдах (${uniqueDishes.join(", ")})`;
+    }
+    return d.msg ? translateMessage(d.msg) : JSON.stringify(detail);
+  }
+
+  return String(detail);
 }
 
 async function request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -113,7 +170,13 @@ export async function deleteDish(id: number) {
   return parseJson(response);
 }
 
-export async function getNutritionDraft(ingredients: Array<{ product_id: number; quantity_grams: number }>) {
+export async function getNutritionDraft(
+  ingredients: Array<{ product_id: number; quantity_grams: number }>,
+  portionSizeGrams?: number,
+) {
   const params = new URLSearchParams({ ingredients: JSON.stringify(ingredients) });
+  if (portionSizeGrams !== undefined) {
+    params.set("portion_size_grams", String(portionSizeGrams));
+  }
   return parseJson<NutritionDraft>(await request(`${API_BASE}/dishes/nutrition-draft?${params.toString()}`));
 }

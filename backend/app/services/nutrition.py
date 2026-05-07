@@ -1,5 +1,7 @@
 def calculate_draft(ingredients: list[tuple[dict, float]]) -> dict:
     totals = {"calories": 0.0, "protein": 0.0, "fat": 0.0, "carbs": 0.0}
+    total_weight = 0.0
+
     if not ingredients:
         return {**totals, "allowed_flags": []}
 
@@ -8,11 +10,14 @@ def calculate_draft(ingredients: list[tuple[dict, float]]) -> dict:
     sugar_free = True
 
     for product, quantity_grams in ingredients:
+        total_weight += quantity_grams
         multiplier = quantity_grams / 100
+
         totals["calories"] += product["calories"] * multiplier
         totals["protein"] += product["protein"] * multiplier
         totals["fat"] += product["fat"] * multiplier
         totals["carbs"] += product["carbs"] * multiplier
+
         vegan = vegan and bool(product["is_vegan"])
         gluten_free = gluten_free and bool(product["is_gluten_free"])
         sugar_free = sugar_free and bool(product["is_sugar_free"])
@@ -32,3 +37,4 @@ def calculate_draft(ingredients: list[tuple[dict, float]]) -> dict:
         "carbs": round(totals["carbs"], 2),
         "allowed_flags": allowed_flags,
     }
+

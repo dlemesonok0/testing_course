@@ -9,6 +9,7 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .venv/
+.coverage
 
 # Node
 node_modules/

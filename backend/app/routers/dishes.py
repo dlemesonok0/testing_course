@@ -30,15 +30,6 @@ DISH_CATEGORY_MACRO_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
-def validate_bju_sum(protein: float, fat: float, carbs: float) -> None:
-    if protein + fat + carbs > 100:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="protein + fat + carbs must be less than or equal to 100",
-        )
-
-
 def normalize_whitespace(value: str) -> str:
     return " ".join(value.split())
 
@@ -84,21 +75,16 @@ def load_products_map(db: Session, ingredients: list[DishIngredientInput]) -> di
     rows = db.scalars(select(Product).where(Product.id.in_(product_ids))).all()
     product_map = {row.id: row for row in rows}
     if len(product_map) != len(product_ids):
-        raise HTTPException(status_code=400, detail="One or more products do not exist")
+        raise HTTPException(status_code=400, detail="Один или несколько продуктов не существуют")
     return product_map
 
 
-def validate_requested_flags(payload: DishCreate, allowed_flags: list[str]) -> None:
-    requested = []
-    if payload.is_vegan:
-        requested.append("vegan")
-    if payload.is_gluten_free:
-        requested.append("gluten_free")
-    if payload.is_sugar_free:
-        requested.append("sugar_free")
-    invalid = [flag for flag in requested if flag not in allowed_flags]
-    if invalid:
-        raise HTTPException(status_code=400, detail=f"Flags not allowed by ingredients: {', '.join(invalid)}")
+def get_allowed_flags_subset(requested_vegan: bool, requested_gluten_free: bool, requested_sugar_free: bool, allowed_flags: list[str]) -> tuple[bool, bool, bool]:
+    return (
+        requested_vegan and "vegan" in allowed_flags,
+        requested_gluten_free and "gluten_free" in allowed_flags,
+        requested_sugar_free and "sugar_free" in allowed_flags,
+    )
 
 
 def dish_from_form(
@@ -106,14 +92,15 @@ def dish_from_form(
     description: str | None = Form(default=None),
     category: str = Form(""),
     portion_size_grams: float = Form(...),
-    calories: float = Form(...),
-    protein: float = Form(...),
-    fat: float = Form(...),
-    carbs: float = Form(...),
+    calories: float = Form(0),
+    protein: float = Form(0),
+    fat: float = Form(0),
+    carbs: float = Form(0),
     is_vegan: bool = Form(False),
     is_gluten_free: bool = Form(False),
     is_sugar_free: bool = Form(False),
     ingredients: str = Form(...),
+    photo_links: list[str] | None = Form(default=None),
 ) -> DishCreate:
     resolved_name, resolved_category = resolve_dish_name_and_category(name, category)
     try:
@@ -130,6 +117,7 @@ def dish_from_form(
             is_gluten_free=is_gluten_free,
             is_sugar_free=is_sugar_free,
             ingredients=parse_ingredients(ingredients),
+            photo_links=[link.strip() for link in (photo_links or []) if link.strip()],
         )
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
@@ -161,16 +149,27 @@ def dish_update_from_form_data(form_data) -> DishUpdate | None:
         "is_sugar_free",
     ):
         if field in form_data:
-            payload[field] = form_data[field]
+            val = form_data[field]
+            if field == "category" and (not val or val == "Без категории"):
+                val = None
+            payload[field] = val
 
     if "ingredients" in form_data:
         payload["ingredients"] = parse_ingredients(str(form_data["ingredients"]))
+    
+    if "photo_links" in form_data:
+        payload["photo_links"] = [link.strip() for link in form_data.getlist("photo_links") if str(link).strip()]
 
     return parse_dish_update_payload(payload)
 
 
 def uploaded_files_from_form(form_data, field_name: str) -> list[UploadFile]:
     return [item for item in form_data.getlist(field_name) if getattr(item, "filename", None)]
+
+
+def normalize_dish_photo_links(photo_links: list[object] | None) -> list[str]:
+    from app.services.files import normalize_storage_path
+    return [normalize_storage_path(str(link).strip()) for link in (photo_links or []) if str(link).strip()]
 
 
 def get_dish(db: Session, dish_id: int) -> Dish | None:
@@ -222,7 +221,10 @@ def dish_payload(dish: Dish) -> DishRead:
 
 
 @router.get("/nutrition-draft", response_model=NutritionDraft)
-def nutrition_draft(ingredients: str = Query(...), db: Session = Depends(get_db)):
+def nutrition_draft(
+    ingredients: str = Query(...),
+    db: Session = Depends(get_db),
+):
     parsed = parse_ingredients(ingredients)
     product_map = load_products_map(db, parsed)
     return calculate_draft(
@@ -241,7 +243,7 @@ def list_dishes(
 ):
     params = SearchParams(search=search, category=category, flags=flags, sort_by=sortBy, sort_order=sortOrder)
     if params.sort_by not in DISH_SORT_FIELDS:
-        raise HTTPException(status_code=400, detail="Unsupported sort field")
+        raise HTTPException(status_code=400, detail="Неподдерживаемое поле сортировки")
 
     stmt = select(Dish).options(
         selectinload(Dish.ingredients).selectinload(DishIngredient.product),
@@ -272,20 +274,24 @@ def create_dish(
     photos: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
 ):
-    validate_bju_sum(payload.protein, payload.fat, payload.carbs)
     product_map = load_products_map(db, payload.ingredients)
     draft = calculate_draft(
         [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in payload.ingredients]
     )
-    validate_requested_flags(payload, draft["allowed_flags"])
+    final_vegan, final_gluten_free, final_sugar_free = get_allowed_flags_subset(
+        payload.is_vegan, payload.is_gluten_free, payload.is_sugar_free, draft["allowed_flags"]
+    )
     uploaded_files = validate_image_uploads(photos)
     if not uploaded_files and photo is not None and photo.filename:
         uploaded_files = validate_image_uploads([photo])
     saved_photo_paths = save_uploads(uploaded_files)
 
+    photo_links = normalize_dish_photo_links(payload.photo_links)
+    all_photo_sources = [*saved_photo_paths, *photo_links]
+
     dish = Dish(
         name=payload.name,
-        photo_path=saved_photo_paths[0] if saved_photo_paths else None,
+        photo_path=all_photo_sources[0] if all_photo_sources else None,
         description=payload.description or "",
         category=payload.category,
         portion_size_grams=payload.portion_size_grams,
@@ -293,15 +299,15 @@ def create_dish(
         protein=payload.protein,
         fat=payload.fat,
         carbs=payload.carbs,
-        is_vegan=payload.is_vegan,
-        is_gluten_free=payload.is_gluten_free,
-        is_sugar_free=payload.is_sugar_free,
+        is_vegan=final_vegan,
+        is_gluten_free=final_gluten_free,
+        is_sugar_free=final_sugar_free,
     )
     for item in payload.ingredients:
         dish.ingredients.append(
             DishIngredient(product_id=item.product_id, quantity_grams=item.quantity_grams)
         )
-    for index, file_path in enumerate(saved_photo_paths):
+    for index, file_path in enumerate(all_photo_sources):
         dish.photos.append(DishPhoto(file_path=file_path, position=index))
 
     db.add(dish)
@@ -309,7 +315,7 @@ def create_dish(
 
     created = get_dish(db, dish.id)
     if created is None:
-        raise HTTPException(status_code=500, detail="Dish was not created")
+        raise HTTPException(status_code=500, detail="Блюдо не было создано")
     return dish_payload(created)
 
 
@@ -317,7 +323,7 @@ def create_dish(
 def get_dish_by_id(dish_id: int, db: Session = Depends(get_db)):
     dish = get_dish(db, dish_id)
     if dish is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
     return dish_payload(dish)
 
 
@@ -325,7 +331,7 @@ def get_dish_by_id(dish_id: int, db: Session = Depends(get_db)):
 async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_db)):
     dish = get_dish(db, dish_id)
     if dish is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
 
     content_type = request.headers.get("content-type", "")
     uploaded_files: list[UploadFile] = []
@@ -333,7 +339,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         try:
             raw_payload = await request.json()
         except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+            raise HTTPException(status_code=400, detail="Некорректное тело JSON-запроса") from exc
         request_payload = parse_dish_update_payload(raw_payload) or DishUpdate()
     else:
         form_data = await request.form()
@@ -344,23 +350,23 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
 
     new_photo_paths = save_uploads(uploaded_files)
 
-    update_data = request_payload.dict(exclude_unset=True, exclude={"ingredients"})
+    update_data = request_payload.dict(exclude_unset=True, exclude={"ingredients", "photo_links"})
     if "name" in update_data:
         resolved_name, resolved_category = resolve_dish_name_and_category(
             update_data["name"],
             update_data.get("category"),
-            fallback_category=dish.category if "category" not in update_data else None,
+            fallback_category=dish.category,
         )
         update_data["name"] = resolved_name
-        if resolved_category is not None:
-            update_data["category"] = resolved_category
+        update_data["category"] = resolved_category
     elif "category" in update_data:
-        update_data["category"] = normalize_whitespace(update_data["category"])
+        update_data["category"] = normalize_whitespace(update_data["category"] or dish.category)
 
     ingredients_payload = request_payload.ingredients if "ingredients" in request_payload.__fields_set__ else None
     effective_ingredients = ingredients_payload or [
         DishIngredientInput(product_id=item.product_id, quantity_grams=item.quantity_grams) for item in dish.ingredients
     ]
+    effective_portion_size = float(update_data.get("portion_size_grams", dish.portion_size_grams))
     product_map = load_products_map(db, effective_ingredients)
     draft = calculate_draft(
         [(product_nutrition_snapshot(product_map[item.product_id]), item.quantity_grams) for item in effective_ingredients]
@@ -370,7 +376,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         "name": update_data.get("name", dish.name),
         "description": update_data.get("description", dish.description),
         "category": update_data.get("category", dish.category),
-        "portion_size_grams": update_data.get("portion_size_grams", dish.portion_size_grams),
+        "portion_size_grams": effective_portion_size,
         "calories": update_data.get("calories", dish.calories),
         "protein": update_data.get("protein", dish.protein),
         "fat": update_data.get("fat", dish.fat),
@@ -380,8 +386,16 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
         "is_sugar_free": update_data.get("is_sugar_free", dish.is_sugar_free),
         "ingredients": effective_ingredients,
     }
-    validate_bju_sum(float(merged["protein"]), float(merged["fat"]), float(merged["carbs"]))
-    validate_requested_flags(DishCreate.parse_obj(merged), draft["allowed_flags"])
+    try:
+        merged_payload = DishCreate.parse_obj(merged)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+    final_vegan, final_gluten_free, final_sugar_free = get_allowed_flags_subset(
+        merged_payload.is_vegan, merged_payload.is_gluten_free, merged_payload.is_sugar_free, draft["allowed_flags"]
+    )
+    update_data["is_vegan"] = final_vegan
+    update_data["is_gluten_free"] = final_gluten_free
+    update_data["is_sugar_free"] = final_sugar_free
 
     if update_data:
         for field, value in update_data.items():
@@ -395,10 +409,18 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
             dish.ingredients.append(
                 DishIngredient(product_id=item.product_id, quantity_grams=item.quantity_grams)
             )
-    if new_photo_paths:
-        dish.photo_path = new_photo_paths[0]
+    photo_links_provided = "photo_links" in request_payload.__fields_set__
+    if photo_links_provided or new_photo_paths:
+        photo_links = normalize_dish_photo_links(request_payload.photo_links if photo_links_provided else None)
+        if photo_links_provided:
+            all_photo_sources = [*new_photo_paths, *photo_links]
+        else:
+            existing_paths = [photo.file_path for photo in dish.photos]
+            all_photo_sources = [*new_photo_paths, *existing_paths]
+
+        dish.photo_path = all_photo_sources[0] if all_photo_sources else None
         dish.photos.clear()
-        for index, file_path in enumerate(new_photo_paths):
+        for index, file_path in enumerate(all_photo_sources):
             dish.photos.append(DishPhoto(file_path=file_path, position=index))
 
     if update_data or ingredients_payload is not None or new_photo_paths:
@@ -406,7 +428,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
 
     updated = get_dish(db, dish_id)
     if updated is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
     return dish_payload(updated)
 
 
@@ -414,7 +436,7 @@ async def update_dish(dish_id: int, request: Request, db: Session = Depends(get_
 def delete_dish(dish_id: int, db: Session = Depends(get_db)):
     dish = db.get(Dish, dish_id)
     if dish is None:
-        raise HTTPException(status_code=404, detail="Dish not found")
+        raise HTTPException(status_code=404, detail="Блюдо не найдено")
 
     db.delete(dish)
     db.commit()

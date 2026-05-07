@@ -6,14 +6,15 @@
     "install:backend": "python -m venv backend\\.venv && .\\backend\\.venv\\bin\\python.exe -m pip install -r backend\\requirements.txt",
     "install:frontend": "npm --prefix frontend install",
     "install:all": "npm run install:backend && npm run install:frontend",
-    "dev:backend": "cd backend && .\\.venv\\bin\\uvicorn.exe app.main:app --reload --log-level info --access-log",
+    "dev:backend": "cd backend && .\\.venv\\bin\\uvicorn.exe app.main:app --reload --port 8001 --log-level info --access-log",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build": "npm --prefix frontend run build",
     "seed:backend": "python -m pip install -r backend/requirements.txt && python backend/scripts/seed_test_data.py",
     "seed": "npm run seed:backend",
-    "test:backend": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_api.py",
-    "test": "npm run test:backend"
+    "test:backend": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests",
+    "test:backend:unit": "set PYTHONPATH=backend&& set COVERAGE_CORE=pytrace&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_nutrition_unit.py --cov=app --cov-report=term-missing",
+    "test": "npm run test:backend && npm run test:backend:unit"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
