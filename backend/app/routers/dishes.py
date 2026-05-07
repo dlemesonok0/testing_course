@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import Dish, DishIngredient, DishPhoto, Product
-from app.schemas import DISH_SORT_FIELDS, DishCreate, DishIngredientInput, DishRead, DishUpdate, NutritionDraft, SearchParams
+from app.schemas import DISH_SORT_FIELDS, MAX_PHOTO_COUNT, DishCreate, DishIngredientInput, DishRead, DishUpdate, NutritionDraft, SearchParams
 from app.services.files import build_asset_url, save_uploads, validate_image_uploads
 from app.services.nutrition import calculate_draft
 
@@ -52,7 +52,10 @@ def resolve_dish_name_and_category(
 
 
 def parse_ingredients(raw: str) -> list[DishIngredientInput]:
-    return [DishIngredientInput.parse_obj(item) for item in json.loads(raw)]
+    try:
+        return [DishIngredientInput.parse_obj(item) for item in json.loads(raw)]
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid ingredients payload") from exc
 
 
 def product_nutrition_snapshot(product: Product) -> dict:
@@ -92,10 +95,10 @@ def dish_from_form(
     description: str | None = Form(default=None),
     category: str = Form(""),
     portion_size_grams: float = Form(...),
-    calories: float = Form(0),
-    protein: float = Form(0),
-    fat: float = Form(0),
-    carbs: float = Form(0),
+    calories: float = Form(...),
+    protein: float = Form(...),
+    fat: float = Form(...),
+    carbs: float = Form(...),
     is_vegan: bool = Form(False),
     is_gluten_free: bool = Form(False),
     is_sugar_free: bool = Form(False),
@@ -172,6 +175,14 @@ def normalize_dish_photo_links(photo_links: list[object] | None) -> list[str]:
     return [normalize_storage_path(str(link).strip()) for link in (photo_links or []) if str(link).strip()]
 
 
+def validate_dish_photo_batch(uploaded_files: list[UploadFile], photo_links: list[str]) -> None:
+    if len(uploaded_files) + len(photo_links) > MAX_PHOTO_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"РќРµР»СЊР·СЏ РґРѕР±Р°РІРёС‚СЊ Р±РѕР»РµРµ {MAX_PHOTO_COUNT} С„РѕС‚РѕРіСЂР°С„РёР№",
+        )
+
+
 def get_dish(db: Session, dish_id: int) -> Dish | None:
     stmt = (
         select(Dish)
@@ -241,7 +252,10 @@ def list_dishes(
     sortOrder: str = Query(default="asc"),
     db: Session = Depends(get_db),
 ):
-    params = SearchParams(search=search, category=category, flags=flags, sort_by=sortBy, sort_order=sortOrder)
+    try:
+        params = SearchParams(search=search, category=category, flags=flags, sort_by=sortBy, sort_order=sortOrder)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
     if params.sort_by not in DISH_SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Неподдерживаемое поле сортировки")
 
@@ -284,9 +298,9 @@ def create_dish(
     uploaded_files = validate_image_uploads(photos)
     if not uploaded_files and photo is not None and photo.filename:
         uploaded_files = validate_image_uploads([photo])
-    saved_photo_paths = save_uploads(uploaded_files)
-
     photo_links = normalize_dish_photo_links(payload.photo_links)
+    validate_dish_photo_batch(uploaded_files, photo_links)
+    saved_photo_paths = save_uploads(uploaded_files)
     all_photo_sources = [*saved_photo_paths, *photo_links]
 
     dish = Dish(
