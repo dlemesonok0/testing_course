@@ -160,8 +160,6 @@ class TestAutomaticDishNutrition:
     ):
         """
         Verify that caloric values scale linearly relative to the 100g reference quantity.
-        Applied Boundary Value Analysis (BVA) for the quantity_grams parameter, including 0.0, 
-        minimal positive values, and values surrounding the 100g reference point.
         """
 
         product = nutrition_product_factory(calories=123.45, protein=0.0, fat=0.0, carbs=0.0)
