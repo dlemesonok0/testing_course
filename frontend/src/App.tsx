@@ -165,7 +165,7 @@ function PhotoGallery({ items, onRemove }: { items: Array<{ url: string; file?: 
   );
 }
 
-function PhotoUploadField({ items, onChange, onError }: { items: Array<{ url: string; file?: File }>; onChange: (items: Array<{ url: string; file?: File }>) => void; onError: (msg: string) => void }) {
+function PhotoUploadField({ items, onChange, onError, testId = "photo-upload" }: { items: Array<{ url: string; file?: File }>; onChange: (items: Array<{ url: string; file?: File }>) => void; onError: (msg: string) => void; testId?: string }) {
   const handleFiles = (files: File[]) => {
     if (items.length + files.length > MAX_PHOTOS) {
       onError(`Нельзя загрузить более ${MAX_PHOTOS} фотографий.`);
@@ -180,11 +180,12 @@ function PhotoUploadField({ items, onChange, onError }: { items: Array<{ url: st
   };
 
   return (
-    <div className="field photo-upload">
+    <div className="field photo-upload" data-testid={testId}>
       <span>Фотографии (макс. {MAX_PHOTOS})</span>
       {items.length < MAX_PHOTOS && (
         <label className="file-picker">
           <input
+            data-testid={`${testId}-input`}
             className="file-input"
             type="file"
             accept="image/*"
@@ -212,7 +213,7 @@ function PhotoUploadField({ items, onChange, onError }: { items: Array<{ url: st
 function ErrorBanner({ message, onClose }: { message: string; onClose: () => void }) {
   if (!message) return null;
   return (
-    <div className="panel error-banner">
+    <div className="panel error-banner" data-testid="error-banner">
       <div className="error-content">
         <span className="error-icon">⚠️</span>
         <span>{message}</span>
@@ -298,19 +299,19 @@ function ProductList() {
   return (
     <section>
       <Header title="Продукты" subtitle="Подстрочный поиск, CRUD и защита удаления." />
-      <div className="panel filters">
-        <input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+      <div className="panel filters" data-testid="products-filters">
+        <input data-testid="products-search" placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select data-testid="products-category-filter" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">Любая категория</option>
           {PRODUCT_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
         </select>
-        <select value={cookingState} onChange={(e) => setCookingState(e.target.value)}>
+        <select data-testid="products-cooking-state-filter" value={cookingState} onChange={(e) => setCookingState(e.target.value)}>
           <option value="">Любая готовность</option>
           {COOKING_STATES.map((item) => <option value={item} key={item}>{item}</option>)}
         </select>
         <label className="filter-field">
           <span>Сортировка по</span>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <select data-testid="products-sort-by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             <option value="name">Название</option>
             <option value="calories">{PRODUCT_CALORIES_LABEL}</option>
             <option value="protein">Белки</option>
@@ -319,11 +320,11 @@ function ProductList() {
             <option value="created_at">Дата создания</option>
           </select>
         </label>
-        <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+        <select data-testid="products-sort-order" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
           <option value="asc">По возрастанию</option>
           <option value="desc">По убыванию</option>
         </select>
-        <FlagFilter value={selectedFlags} onChange={setSelectedFlags} />
+        <FlagFilter testIdPrefix="products-flag" value={selectedFlags} onChange={setSelectedFlags} />
       </div>
       <ErrorBanner message={error} onClose={() => setError("")} />
       <Cards
@@ -397,15 +398,15 @@ function DishList() {
   return (
     <section>
       <Header title="Блюда" subtitle="Черновой расчет КБЖУ строится по составу." />
-      <div className="panel filters">
-        <input placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+      <div className="panel filters" data-testid="dishes-filters">
+        <input data-testid="dishes-search" placeholder="Поиск по названию" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select data-testid="dishes-category-filter" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">Любая категория</option>
           {DISH_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
         </select>
         <label className="filter-field">
           <span>Сортировка по</span>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <select data-testid="dishes-sort-by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
             <option value="name">Название</option>
             <option value="calories">{DISH_CALORIES_LABEL}</option>
             <option value="protein">Белки</option>
@@ -414,11 +415,11 @@ function DishList() {
             <option value="created_at">Дата создания</option>
           </select>
         </label>
-        <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+        <select data-testid="dishes-sort-order" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
           <option value="asc">По возрастанию</option>
           <option value="desc">По убыванию</option>
         </select>
-        <FlagFilter value={selectedFlags} onChange={setSelectedFlags} />
+        <FlagFilter testIdPrefix="dishes-flag" value={selectedFlags} onChange={setSelectedFlags} />
       </div>
       <ErrorBanner message={error} onClose={() => setError("")} />
       <Cards
@@ -451,11 +452,11 @@ function Cards({ items }: { items: Array<{ id: number; title: string; subtitle: 
   return (
     <div className="grid">
       {items.map((item) => (
-        <article className="card" key={item.id}>
+        <article className="card" data-testid="entity-card" key={item.id}>
           {item.image && <img src={assetUrl(item.image)} alt={item.title} />}
           <div className="card-body">
             <div className="card-header">
-              <h3>{item.title}</h3>
+              <h3 data-testid="entity-card-title">{item.title}</h3>
               <span>{item.subtitle}</span>
             </div>
             {item.description && <p>{item.description}</p>}
@@ -463,9 +464,9 @@ function Cards({ items }: { items: Array<{ id: number; title: string; subtitle: 
             <p className="nutrition">{item.meta}</p>
             <AuditMeta createdAt={item.createdAt} updatedAt={item.updatedAt} />
             <div className="actions">
-              <Link to={item.href}>Открыть</Link>
-              <Link to={item.editHref}>Редактировать</Link>
-              <button onClick={() => void item.onDelete()}>Удалить</button>
+              <Link data-testid="entity-card-open" to={item.href}>Открыть</Link>
+              <Link data-testid="entity-card-edit" to={item.editHref}>Редактировать</Link>
+              <button data-testid="entity-card-delete" onClick={() => void item.onDelete()}>Удалить</button>
             </div>
           </div>
         </article>
@@ -496,8 +497,8 @@ function ProductCard() {
 
   if (!item) return <p>Загрузка...</p>;
   return (
-    <section className="detail">
-      <Header title={item.name} subtitle={`${item.category} · ${item.cooking_state}`} />
+    <section className="detail" data-testid="product-card">
+      <Header testId="product-card-title" title={item.name} subtitle={`${item.category} · ${item.cooking_state}`} />
       {item.photo_urls.length > 0 && (
         <div className="photo-gallery">
           <img className="hero" src={assetUrl(item.photo_urls[0])} alt={item.name} />
@@ -517,7 +518,7 @@ function ProductCard() {
       )}
       <p>{item.composition ?? "Состав не указан"}</p>
       <FlagBadges labels={getActiveFlagLabels(item)} emptyLabel="Флаги не выбраны" />
-      <p className="nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, PRODUCT_CALORIES_LABEL)}</p>
+      <p className="nutrition" data-testid="product-nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, PRODUCT_CALORIES_LABEL)}</p>
       <AuditMeta createdAt={item.created_at} updatedAt={item.updated_at} />
     </section>
   );
@@ -534,8 +535,8 @@ function DishCard() {
 
   if (!item) return <p>Загрузка...</p>;
   return (
-    <section className="detail">
-      <Header title={item.name} subtitle={formatDishSubtitle(item.category, item.portion_size_grams)} />
+    <section className="detail" data-testid="dish-card">
+      <Header testId="dish-card-title" title={item.name} subtitle={formatDishSubtitle(item.category, item.portion_size_grams)} />
       {item.photo_urls.length > 0 && (
         <div className="photo-gallery">
           <img className="hero" src={assetUrl(item.photo_urls[0])} alt={item.name} />
@@ -553,12 +554,12 @@ function DishCard() {
           )}
         </div>
       )}
-      <p className="nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, DISH_CALORIES_LABEL)}</p>
+      <p className="nutrition" data-testid="dish-nutrition">{formatNutrition(item.calories, item.protein, item.fat, item.carbs, DISH_CALORIES_LABEL)}</p>
       <FlagBadges labels={getActiveFlagLabels(item)} emptyLabel="Флаги не выбраны" />
       <AuditMeta createdAt={item.created_at} updatedAt={item.updated_at} />
       <div className="panel">
         <h3>Состав блюда</h3>
-        <ul className="ingredients">
+        <ul className="ingredients" data-testid="dish-ingredients">
           {item.ingredients.map((ingredient) => (
             <li key={`${ingredient.product_id}-${ingredient.quantity_grams}`}>
               <span>{ingredient.product_name}</span>
@@ -642,33 +643,33 @@ function ProductForm({ edit = false }: { edit?: boolean }) {
       <Header title={edit ? "Редактирование продукта" : "Новый продукт"} subtitle={`Для продукта можно загрузить до ${MAX_PHOTOS} фотографий.`} />
       <ErrorBanner message={error} onClose={() => setError("")} />
       <div className="form-grid">
-        <Field label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
+        <Field testId="product-name" label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
         <label className="field">
           <span>Категория</span>
-          <select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>
+          <select data-testid="product-category" value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>
             {PRODUCT_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
           </select>
         </label>
-        <Field label="Состав" value={form.composition} onChange={(value) => setForm((prev) => ({ ...prev, composition: value }))} multiline />
+        <Field testId="product-composition" label="Состав" value={form.composition} onChange={(value) => setForm((prev) => ({ ...prev, composition: value }))} multiline />
         <label className="field">
           <span>Степень готовности</span>
-          <select value={form.cooking_state} onChange={(e) => setForm((prev) => ({ ...prev, cooking_state: e.target.value }))}>
+          <select data-testid="product-cooking-state" value={form.cooking_state} onChange={(e) => setForm((prev) => ({ ...prev, cooking_state: e.target.value }))}>
             {COOKING_STATES.map((item) => <option value={item} key={item}>{item}</option>)}
           </select>
         </label>
-        <Field label={PRODUCT_CALORIES_LABEL} value={form.calories} onChange={(value) => setForm((prev) => ({ ...prev, calories: value }))} type="number" />
-        <Field label={PRODUCT_PROTEIN_LABEL} value={form.protein} onChange={(value) => setForm((prev) => ({ ...prev, protein: value }))} type="number" />
-        <Field label={PRODUCT_FAT_LABEL} value={form.fat} onChange={(value) => setForm((prev) => ({ ...prev, fat: value }))} type="number" />
-        <Field label={PRODUCT_CARBS_LABEL} value={form.carbs} onChange={(value) => setForm((prev) => ({ ...prev, carbs: value }))} type="number" />
+        <Field testId="product-calories" label={PRODUCT_CALORIES_LABEL} value={form.calories} onChange={(value) => setForm((prev) => ({ ...prev, calories: value }))} type="number" />
+        <Field testId="product-protein" label={PRODUCT_PROTEIN_LABEL} value={form.protein} onChange={(value) => setForm((prev) => ({ ...prev, protein: value }))} type="number" />
+        <Field testId="product-fat" label={PRODUCT_FAT_LABEL} value={form.fat} onChange={(value) => setForm((prev) => ({ ...prev, fat: value }))} type="number" />
+        <Field testId="product-carbs" label={PRODUCT_CARBS_LABEL} value={form.carbs} onChange={(value) => setForm((prev) => ({ ...prev, carbs: value }))} type="number" />
         {flags.map(([key, label]) => (
           <label className="checkbox" key={key}>
-            <input type="checkbox" checked={form[key]} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.checked }))} />
+            <input data-testid={`product-${key}`} type="checkbox" checked={form[key]} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.checked }))} />
             {label}
           </label>
         ))}
-        <PhotoUploadField items={form.photos} onChange={(items) => setForm((prev) => ({ ...prev, photos: items }))} onError={setError} />
+        <PhotoUploadField testId="product-photos" items={form.photos} onChange={(items) => setForm((prev) => ({ ...prev, photos: items }))} onError={setError} />
       </div>
-      <button className="primary" onClick={() => void submit()}>Сохранить</button>
+      <button data-testid="product-save" className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );
 }
@@ -803,26 +804,26 @@ function DishForm({ edit = false }: { edit?: boolean }) {
       <Header title={edit ? "Редактирование блюда" : "Новое блюдо"} subtitle={`Пищевая ценность считается на одну порцию, фото можно загрузить до ${MAX_PHOTOS} штук.`} />
       <ErrorBanner message={error} onClose={() => setError("")} />
       <div className="form-grid">
-        <Field label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
+        <Field testId="dish-name" label="Название" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
         <label className="field">
           <span>Категория</span>
-          <select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>
+          <select data-testid="dish-category" value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>
             <option value="">Без категории</option>
             {DISH_CATEGORIES.map((item) => <option value={item} key={item}>{item}</option>)}
           </select>
         </label>
-        <Field label="Размер порции, г" value={form.portion_size_grams} onChange={(value) => setForm((prev) => ({ ...prev, portion_size_grams: value }))} type="number" />
-        <Field label={DISH_CALORIES_LABEL} value={form.calories} onChange={(value) => updateNutritionField("calories", value)} type="number" />
-        <Field label={DISH_PROTEIN_LABEL} value={form.protein} onChange={(value) => updateNutritionField("protein", value)} type="number" />
-        <Field label={DISH_FAT_LABEL} value={form.fat} onChange={(value) => updateNutritionField("fat", value)} type="number" />
-        <Field label={DISH_CARBS_LABEL} value={form.carbs} onChange={(value) => updateNutritionField("carbs", value)} type="number" />
+        <Field testId="dish-portion-size" label="Размер порции, г" value={form.portion_size_grams} onChange={(value) => setForm((prev) => ({ ...prev, portion_size_grams: value }))} type="number" />
+        <Field testId="dish-calories" label={DISH_CALORIES_LABEL} value={form.calories} onChange={(value) => updateNutritionField("calories", value)} type="number" />
+        <Field testId="dish-protein" label={DISH_PROTEIN_LABEL} value={form.protein} onChange={(value) => updateNutritionField("protein", value)} type="number" />
+        <Field testId="dish-fat" label={DISH_FAT_LABEL} value={form.fat} onChange={(value) => updateNutritionField("fat", value)} type="number" />
+        <Field testId="dish-carbs" label={DISH_CARBS_LABEL} value={form.carbs} onChange={(value) => updateNutritionField("carbs", value)} type="number" />
         {flags.map(([key, label, apiFlag]) => (
           <label className="checkbox" key={key}>
-            <input type="checkbox" disabled={!allowed.includes(apiFlag)} checked={form[key]} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.checked }))} />
+            <input data-testid={`dish-${key}`} type="checkbox" disabled={!allowed.includes(apiFlag)} checked={form[key]} onChange={(e) => setForm((prev) => ({ ...prev, [key]: e.target.checked }))} />
             {label}
           </label>
         ))}
-        <PhotoUploadField items={form.photos} onChange={(items) => setForm((prev) => ({ ...prev, photos: items }))} onError={setError} />
+        <PhotoUploadField testId="dish-photos" items={form.photos} onChange={(items) => setForm((prev) => ({ ...prev, photos: items }))} onError={setError} />
       </div>
       <div className="panel">
         <div className="ingredients-header">
@@ -831,17 +832,17 @@ function DishForm({ edit = false }: { edit?: boolean }) {
         </div>
         {form.ingredients.map((ingredient, index) => (
           <div className="ingredient-row" key={index}>
-            <select value={ingredient.product_id} onChange={(e) => setForm((prev) => ({ ...prev, ingredients: prev.ingredients.map((item, idx) => idx === index ? { ...item, product_id: Number(e.target.value) } : item) }))}>
+            <select data-testid={`dish-ingredient-product-${index}`} value={ingredient.product_id} onChange={(e) => setForm((prev) => ({ ...prev, ingredients: prev.ingredients.map((item, idx) => idx === index ? { ...item, product_id: Number(e.target.value) } : item) }))}>
               <option value={0}>Выберите продукт</option>
               {products.map((product) => <option value={product.id} key={product.id}>{product.name}</option>)}
             </select>
-            <input type="number" min="1" value={ingredient.quantity_grams} onChange={(e) => setForm((prev) => ({ ...prev, ingredients: prev.ingredients.map((item, idx) => idx === index ? { ...item, quantity_grams: e.target.value } : item) }))} />
+            <input data-testid={`dish-ingredient-quantity-${index}`} type="number" min="1" value={ingredient.quantity_grams} onChange={(e) => setForm((prev) => ({ ...prev, ingredients: prev.ingredients.map((item, idx) => idx === index ? { ...item, quantity_grams: e.target.value } : item) }))} />
             <button onClick={() => setForm((prev) => ({ ...prev, ingredients: prev.ingredients.filter((_, idx) => idx !== index) }))} disabled={form.ingredients.length === 1}>Удалить</button>
           </div>
         ))}
       </div>
       {draft && (
-        <div className="panel accent">
+        <div className="panel accent" data-testid="dish-nutrition-draft">
           <strong>Черновик КБЖУ на порцию:</strong> {draft.calories} / {draft.protein} / {draft.fat} / {draft.carbs}
           <div style={{ marginTop: "8px" }}>
             <strong>Разрешенные флаги:</strong>{" "}
@@ -856,16 +857,16 @@ function DishForm({ edit = false }: { edit?: boolean }) {
           </div>
         </div>
       )}
-      <button className="primary" onClick={() => void submit()}>Сохранить</button>
+      <button data-testid="dish-save" className="primary" onClick={() => void submit()}>Сохранить</button>
     </section>
   );
 }
 
-function Header({ title, subtitle }: { title: string; subtitle: string }) {
-  return <header className="page-header"><h2>{title}</h2><p>{subtitle}</p></header>;
+function Header({ title, subtitle, testId }: { title: string; subtitle: string; testId?: string }) {
+  return <header className="page-header"><h2 data-testid={testId}>{title}</h2><p>{subtitle}</p></header>;
 }
 
-function FlagFilter({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+function FlagFilter({ value, onChange, testIdPrefix = "flag-filter" }: { value: string[]; onChange: (next: string[]) => void; testIdPrefix?: string }) {
   const toggle = (flag: string) => {
     onChange(value.includes(flag) ? value.filter((item) => item !== flag) : [...value, flag]);
   };
@@ -874,7 +875,7 @@ function FlagFilter({ value, onChange }: { value: string[]; onChange: (next: str
     <div className="flag-filter">
       {flags.map(([, label, apiFlag]) => (
         <label className="checkbox" key={apiFlag}>
-          <input type="checkbox" checked={value.includes(apiFlag)} onChange={() => toggle(apiFlag)} />
+          <input data-testid={`${testIdPrefix}-${apiFlag}`} type="checkbox" checked={value.includes(apiFlag)} onChange={() => toggle(apiFlag)} />
           {label}
         </label>
       ))}
@@ -882,11 +883,11 @@ function FlagFilter({ value, onChange }: { value: string[]; onChange: (next: str
   );
 }
 
-function Field({ label, value, onChange, multiline, type = "text", readOnly = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; type?: string; readOnly?: boolean }) {
+function Field({ label, value, onChange, multiline, type = "text", readOnly = false, testId }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean; type?: string; readOnly?: boolean; testId?: string }) {
   return (
     <label className="field">
       <span>{label}</span>
-      {multiline ? <textarea value={value} readOnly={readOnly} onChange={(e) => onChange(e.target.value)} /> : <input type={type} value={value} readOnly={readOnly} onChange={(e) => onChange(e.target.value)} />}
+      {multiline ? <textarea data-testid={testId} value={value} readOnly={readOnly} onChange={(e) => onChange(e.target.value)} /> : <input data-testid={testId} type={type} value={value} readOnly={readOnly} onChange={(e) => onChange(e.target.value)} />}
     </label>
   );
 }

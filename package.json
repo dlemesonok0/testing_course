@@ -16,9 +16,12 @@
     "test:backend:api": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_products_api.py backend\\app\\tests\\test_dishes_api.py",
     "test:backend:unit": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_nutrition_unit.py",
     "test:backend:coverage": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests --cov=app --cov-report=term-missing",
+    "test:ui": "playwright test",
+    "dev:backend:ui": "node scripts/dev-backend-ui.js",
     "test": "npm run test:backend"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "concurrently": "^9.2.1"
   }
 }
