@@ -63,6 +63,8 @@ class TestProductCreationApi:
         [
             pytest.param("calories", "-0.01", 422, id="negative-calories-invalid"),
             pytest.param("calories", "0", 201, id="zero-calories-valid-boundary"),
+            pytest.param("calories", "0.01", 201, id="minimal-calories-valid-boundary"),
+
         ],
     )
     def test_product_calorie_boundaries(self, client, field, value, expected_status):
