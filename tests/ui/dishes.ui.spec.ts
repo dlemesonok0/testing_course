@@ -5,7 +5,6 @@ import { dishCategories } from "./fixtures/data";
  * Системные UI-тесты блюд.
  * Проверяют создание блюда из существующего продукта, автоматический расчет
  * КБЖУ, ограничения диетических флагов и запрет удаления используемого продукта.
- * Сценарии выбраны по эквивалентному разбиению и граничным значениям.
  */
 test.describe("Dishes UI", () => {
   test("creates dish from existing product and applies nutrition draft", async ({ api, dishesPage, suffix }) => {
