@@ -156,14 +156,17 @@ def list_products(
     sortOrder: str = Query(default="asc"),
     db: Session = Depends(get_db),
 ):
-    params = SearchParams(
-        search=search,
-        category=category,
-        cooking_state=cookingState,
-        flags=flags,
-        sort_by=sortBy,
-        sort_order=sortOrder,
-    )
+    try:
+        params = SearchParams(
+            search=search,
+            category=category,
+            cooking_state=cookingState,
+            flags=flags,
+            sort_by=sortBy,
+            sort_order=sortOrder,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
     if params.sort_by not in PRODUCT_SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Неподдерживаемое поле сортировки")
 

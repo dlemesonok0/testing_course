@@ -13,8 +13,10 @@
     "seed:backend": "python -m pip install -r backend/requirements.txt && python backend/scripts/seed_test_data.py",
     "seed": "npm run seed:backend",
     "test:backend": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests",
-    "test:backend:unit": "set PYTHONPATH=backend&& set COVERAGE_CORE=pytrace&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_nutrition_unit.py --cov=app --cov-report=term-missing",
-    "test": "npm run test:backend && npm run test:backend:unit"
+    "test:backend:api": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_products_api.py backend\\app\\tests\\test_dishes_api.py",
+    "test:backend:unit": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests\\test_nutrition_unit.py",
+    "test:backend:coverage": "set PYTHONPATH=backend&& backend\\.venv\\bin\\pytest.exe backend\\app\\tests --cov=app --cov-report=term-missing",
+    "test": "npm run test:backend"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
