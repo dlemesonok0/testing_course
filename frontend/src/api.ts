@@ -1,6 +1,6 @@
 import type { Dish, NutritionDraft, Product } from "./types";
 
-const API_BASE = "http://127.0.0.1:8001";
+const API_BASE = "http://localhost:8001";
 
 type ApiValidationIssue = {
   loc?: Array<string | number>;

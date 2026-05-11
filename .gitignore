@@ -19,6 +19,12 @@ dist/
 backend/recipe_book.db
 backend/uploads/
 backend/test_recipe_book.db
+backend/test_recipe_book_ui.db
+backend/preprod_recipe_book.db
+
+# Playwright
+playwright-report/
+test-results/
 
 # Logs
 *.log
